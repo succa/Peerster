@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="utf-8" />
+		<title>Peerster</title>
+		<link rel="stylesheet" type="text/css" href="css/style.css" />
+		<link rel="stylesheet" type="text/css" href="css/jquery-ui.css" />
+		<script type="text/javascript" src="js/jquery-3.2.1.js"></script>
+		<script type="text/javascript" src="js/jquery-ui.js"></script>
+		<script type="text/javascript" src="js/clientUi.js"></script>
+	</head>
+	<body>
+		<div id="applicationBox">
+			<div class="title">Peerster</div>
+
+			<div id="IDBox">
+				<div class="border right" id="idContent">
+					ID <span class="nodeName myName"></span>
+				</div>
+			</div>
+			<div class="clear" id="inputBox">
+				<div class="border right">
+					Message: <input type="text" placeholder="Write a message" id="message" /> <button id="sendMessage">Send</button><br />
+					Add peer: <input type="text" placeholder="Peer address:port" id="peerAddress" /> <button id="sendPeer">Send</button><br />
+				</div>
+			</div>
+
+			<div class="columnsFile">
+				<div id="shareFileBox">
+					<div class="border right">
+						<div>
+							<select id="selectFile">
+							  <option value="0">Select File:</option>
+							</select>
+						</div>
+						<button id="shareFile">Share</button><br />
+					</div>
+				</div>
+				<div id="downloadFileBox">
+					<div class="border right">
+						Node: <input type="text" placeholder="Node to download from" id="downloadNode" /><br />
+						File:   <input type="text" placeholder="Output file name" id="fileName" /><br />
+						Hash: <input type="text" placeholder="Metafile Hash" id="metaHash" /><br />
+						<button id="downloadButton">Download</button><br />
+					</div>
+				</div>
+			</div>
+
+			<div class="columns">
+				<div id="chatBox">
+					<div class="border left" id="chatContent">
+						Chat
+					</div>
+				</div>
+				<div id="nodesBox">
+					<div id="peerBox">
+						<div class="border right" id="peerContent">
+							Peers
+						</div>
+					</div>
+					<div id="nodeBox">
+						<div class="border right" id="nodeContent">
+							Nodes
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</body>
+</html>
