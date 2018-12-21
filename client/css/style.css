@@ -39,7 +39,15 @@ html, body {
 
 #downloadFileBox {
 	float: left;
-	width: 70%;
+	width: 35%;
+	height: 160px;
+	margin: 0;
+	padding: 0;
+}
+
+#searchFileBox {
+	float: left;
+	width: 35%;
 	height: 160px;
 	margin: 0;
 	padding: 0;

@@ -23,7 +23,7 @@ $(document).ready(function(){
 		const msg = $("#message").val()
 		$("#sendMessage").prop("disabled", true)
         $("#message").prop("disabled", true)
-        var obj = { Dest: "", Msg: msg, File: "", Request: "" }
+        var obj = { Dest: "", Msg: msg, File: "", Request: "", Keywords: "", Budget: 0 }
         var dataToSend = JSON.stringify(obj)
         $.ajax({
             type: 'POST',
@@ -69,7 +69,7 @@ $(document).ready(function(){
         const file = $("#fileName").val()
         const request = $("#metaHash").val()
         if (dest !== "" && file !== "" && request !== "") {
-            var obj = { Dest: dest, Msg: "", File: file, Request: request }
+            var obj = { Dest: dest, Msg: "", File: file, Request: request, Keywords: "", Budget: 0 }
             var dataToSend = JSON.stringify(obj)
             $.ajax({
                 type: 'POST',
@@ -93,7 +93,7 @@ $(document).ready(function(){
         const selectFile = window.document.getElementById("selectFile")
         var file = selectFile[selectFile.selectedIndex].value
         //alert(file)
-        var obj = { Dest: "", Msg: "", File: file, Request: "" }
+        var obj = { Dest: "", Msg: "", File: file, Request: "", Keywords: "", Budget: 0 }
         var dataToSend = JSON.stringify(obj)
         $.ajax({
             type: 'POST',
@@ -108,6 +108,35 @@ $(document).ready(function(){
             contentType: "application/json"
         })
     })
+
+    // Search file button
+    $("#searchButton").click(function(){
+        const searchFile = $("#searchFile").val()
+        var budget = parseFloat($("#budget").val())
+        if (isNaN(budget)) {
+            budget = 0
+        }
+        var obj = { Dest: "", Msg: "", File: "", Request: "", Keywords: searchFile, Budget: budget }
+        var dataToSend = JSON.stringify(obj)
+        $.ajax({
+            type: 'POST',
+            url: "/message",
+            data: dataToSend,
+            //success: function() {
+            //    var search = setInterval(getSearchedFiles, 500);
+            //    setTimeout(clearInterval(search), 5000)
+            //},
+            error: function() {
+                alert("Unable to search keywords")
+            },
+            contentType: "application/json"
+        })
+        // Reset results
+        resetResultSearchFiles()
+        // Ping if there are succesful files
+        var search = setInterval(function() {getSearchedFileNames(searchFile)}, 500);
+        setTimeout(function() { clearInterval( search ); }, 20000);
+    })
 })
 
 function getName() {
@@ -120,17 +149,60 @@ function getName() {
 function getFileList() {
     $.get("/message?file=all", function(files){
         //alert(files)
-        const selectFile = window.document.getElementById("selectFile")
+        var selectFile = window.document.getElementById("selectFile")
+        //var i;
+        //for (i = 1; i <= selectFile.length-1; i++) { 
+        //    selectFile.remove(i);
+        //}
 
         if (selectFile !== null) {
             JSON.parse(files)
             //.sort((x, y) => x.localeCompare(y))
             .forEach(file => {
-                const elem = document.createElement("option")
-                elem.appendChild(document.createTextNode(file))
-                selectFile.appendChild(elem)
+                if (selectFile.namedItem(file) === null) {
+                    const elem = document.createElement("option")
+                    elem.id = file
+                    elem.appendChild(document.createTextNode(file))
+                    selectFile.appendChild(elem)
+                }
             })
         }
+    })
+}
+
+function getSearchedFileNames(keywords) {
+    //alert(keywords)
+    $.get("/message?keywords="+keywords, function(files){
+        //alert(files)
+        const resultContent = window.document.getElementById("resultContent")
+
+        if (resultContent !== null && files !== null) {
+            //alert("Inside")
+            JSON.parse(files)
+            .forEach(f => {
+                //<a onClick="a();" style="cursor: pointer; cursor: hand;">*click here*</a>
+                //object.onclick = function(){myScript};
+                const elem = document.createElement("div")
+                elem.setAttribute("style", "cursor: pointer; cursor: hand;")
+                elem.onclick = function(){downloadSearchedFile(f)}
+				elem.appendChild(document.createTextNode(f))
+				resultContent.appendChild(elem)
+			})
+        }
+    })
+}
+
+function resetResultSearchFiles() {
+    const resultContent = window.document.getElementById("resultContent")
+    if (resultContent !== null) {
+        resultContent.innerHTML = "Results:"
+    }
+}
+
+function downloadSearchedFile(file) {
+    //alert(file)
+    $.get("/message?file="+file, function(message){
+        alert(message)
     })
 }
 
@@ -236,7 +308,7 @@ function openPrivateDialogBox(dest) {
         const msg = $("#privateMessage").val()
         $("#sendPrivateMessage").prop("disabled", true)
         $("#privateMessage").prop("disabled", true)
-        var obj = { Dest: dest, Msg: msg, File: "", Request: "" }
+        var obj = { Dest: dest, Msg: msg, File: "", Request: "", Keywords: "", Budget: 0 }
         var dataToSend = JSON.stringify(obj)
         $.ajax({
             type: 'POST',

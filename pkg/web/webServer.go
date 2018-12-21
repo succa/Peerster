@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/succa/Peerster/pkg/gossiper"
 	"github.com/succa/Peerster/pkg/utils"
@@ -52,23 +53,24 @@ func (w *WebServer) MessageHandler(wr http.ResponseWriter, r *http.Request) {
 	case "GET":
 		dest := r.URL.Query().Get("dest")
 		file := r.URL.Query().Get("file")
+		keywords := r.URL.Query().Get("keywords")
 
 		switch {
-		case dest == "" && file == "":
+		case dest == "" && file == "" && keywords == "":
 			// Message to gossip
 			wr.WriteHeader(http.StatusOK)
 			messages := w.gossiper.GetMessages()
 			data, _ := json.Marshal(messages)
 			wr.Write(data)
 			return
-		case dest != "" && file == "":
+		case dest != "" && file == "" && keywords == "":
 			// Private Message
 			wr.WriteHeader(http.StatusOK)
 			messages := w.gossiper.GetPrivateMessages(dest)
 			data, _ := json.Marshal(messages)
 			wr.Write(data)
 			return
-		case dest == "" && file == "all": //TODO to see
+		case dest == "" && file == "all" && keywords == "": //TODO to see
 			// Get File list
 			ex, _ := os.Executable()
 			fileDir := filepath.Dir(ex) + fileFolder + "/"
@@ -86,7 +88,29 @@ func (w *WebServer) MessageHandler(wr http.ResponseWriter, r *http.Request) {
 			data, _ := json.Marshal(list)
 			wr.Write(data)
 			return
+		case dest == "" && file != "" && keywords == "":
+			// List of searched files
+			wr.WriteHeader(http.StatusOK)
+			err := w.gossiper.DownloadSearchedFileFromName(file)
+			//fmt.Println(err)
+			var data []byte
+			if err != nil {
+				data, _ = json.Marshal(err.Error())
+			} else {
+				data, _ = json.Marshal("File Downloaded")
+			}
+			wr.Write(data)
+			return
+		case dest == "" && file == "" && keywords != "":
+			// List of searched files
+			wr.WriteHeader(http.StatusOK)
+			k := strings.Split(keywords, ",")
+			files := w.gossiper.GetCompletedSearches(k)
+			data, _ := json.Marshal(files)
+			wr.Write(data)
+			return
 		}
+
 	case "POST":
 		var msg interface{}
 		err := decode(wr, r, &msg)
@@ -102,12 +126,20 @@ func (w *WebServer) MessageHandler(wr http.ResponseWriter, r *http.Request) {
 		dest := clientMessage["Dest"].(string)
 		file := clientMessage["File"].(string)
 		request := clientMessage["Request"].(string)
+		keywords := clientMessage["Keywords"].(string)
+		//fmt.Println("After keywords")
+		//fmt.Println(keywords)
+		budget := uint64(clientMessage["Budget"].(float64))
+		//fmt.Println("After budget")
+		//fmt.Println(budget)
 
 		switch {
 		case (message != "" &&
 			dest == "" &&
 			file == "" &&
-			request == ""):
+			request == "" &&
+			keywords == "" &&
+			budget == 0):
 			//Gossip message
 			err = w.gossiper.SendClientMessage(message)
 			if err != nil {
@@ -118,7 +150,9 @@ func (w *WebServer) MessageHandler(wr http.ResponseWriter, r *http.Request) {
 		case (message != "" &&
 			dest != "" &&
 			file == "" &&
-			request == ""):
+			request == "" &&
+			keywords == "" &&
+			budget == 0):
 			//Private message
 			err = w.gossiper.SendPrivateMessage(message, dest)
 			if err != nil {
@@ -129,7 +163,9 @@ func (w *WebServer) MessageHandler(wr http.ResponseWriter, r *http.Request) {
 		case (message == "" &&
 			dest == "" &&
 			file != "" &&
-			request == ""):
+			request == "" &&
+			keywords == "" &&
+			budget == 0):
 			//File to index
 			utils.PrintRequestIndexing(file)
 			ex, _ := os.Executable()
@@ -143,7 +179,9 @@ func (w *WebServer) MessageHandler(wr http.ResponseWriter, r *http.Request) {
 		case (message == "" &&
 			dest != "" &&
 			file != "" &&
-			request != ""):
+			request != "" &&
+			keywords == "" &&
+			budget == 0):
 			//Request for a file
 			utils.PrintRequestFile(file, dest, request)
 			var byteReq32 [32]byte
@@ -160,10 +198,49 @@ func (w *WebServer) MessageHandler(wr http.ResponseWriter, r *http.Request) {
 				return
 			}
 			return
+		case (message == "" &&
+			dest == "" &&
+			file != "" &&
+			request != "" &&
+			keywords == "" &&
+			budget == 0):
+			//Request for a file that was previously searched
+			var byteReq32 [32]byte
+			byteReq, err := hex.DecodeString(request)
+			if err != nil {
+				fmt.Println("The hex request is incorrect")
+				wr.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			copy(byteReq32[:], byteReq) //TODO test this part
+			err = w.gossiper.DownloadSearchedFile(file, byteReq32)
+			if err != nil {
+				wr.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			return
+		case (message == "" &&
+			dest == "" &&
+			file == "" &&
+			request == "" &&
+			keywords != ""):
+			keyw := strings.Split(keywords, ",")
+			fmt.Println(keyw)
+			if len(keyw) == 0 {
+				wr.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			err = w.gossiper.SearchFiles(keyw, budget)
+			if err != nil {
+				wr.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			//wr.WriteHeader(http.StatusOK)
+			return
+		default:
+			wr.WriteHeader(http.StatusBadRequest)
+			return
 		}
-
-		wr.WriteHeader(http.StatusOK)
-
 	default:
 		wr.WriteHeader(http.StatusMethodNotAllowed)
 	}

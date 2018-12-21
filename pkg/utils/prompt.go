@@ -3,7 +3,7 @@ package utils
 import (
 	"bytes"
 	"fmt"
-	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -69,13 +69,43 @@ func PrintRequestFile(filename string, dest string, request string) {
 }
 
 func PrintDownloadingMetafile(file string, dest string) {
-	fmt.Println("DOWNLOADING metafile of " + filepath.Base(file) + " from " + dest)
+	fmt.Println("DOWNLOADING metafile of " + file + " from " + dest)
 }
 
 func PrintDownloadingChunk(file string, index int, dest string) {
-	fmt.Println("DOWNLOADING " + filepath.Base(file) + " chunk " + strconv.Itoa(int(index)) + " from " + dest)
+	fmt.Println("DOWNLOADING " + file + " chunk " + strconv.Itoa(int(index+1)) + " from " + dest)
 }
 
 func PrintReconstructed(file string) {
-	fmt.Println("RECONSTRUCTED file " + filepath.Base(file))
+	fmt.Println("RECONSTRUCTED file " + file)
+}
+
+func PrintFoundMatch(file string, dest string, metafilehash []byte, chunkMap []uint64) {
+	//sort chunkMap (just to be sure)
+	sort.Slice(chunkMap, func(i, j int) bool { return chunkMap[i] < chunkMap[j] })
+	var s []string
+	for _, chunk := range chunkMap {
+		s = append(s, strconv.FormatUint(chunk+1, 10))
+	}
+	fmt.Printf("FOUND match %s at %s metafile=%x chunks=%s\n", file, dest, metafilehash, strings.Join(s, ","))
+}
+
+func PrintFoundBlock(block *message.Block) {
+	fmt.Printf("FOUND-BLOCK [%x]\n", block.Hash())
+}
+
+func PrintChain(blocks []*message.Block) {
+	fmt.Printf("CHAIN ")
+	for i := len(blocks) - 1; i >= 0; i-- {
+		fmt.Printf("[%x] ", blocks[i].Hash())
+	}
+	fmt.Printf("\n")
+}
+
+func PrintForkLonger(rewind int) {
+	fmt.Printf("FORK-LONGER rewind %d blocks\n", rewind)
+}
+
+func PrintForkShorter(block *message.Block) {
+	fmt.Printf("FORK-SHORTER %x\n", block.Hash())
 }
