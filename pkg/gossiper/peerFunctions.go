@@ -356,9 +356,9 @@ func (g *Gossiper) servePeer(addr net.Addr, buf []byte) {
 		}
 		g.SendToPeer(destinationPeer, &packetReceived)
 	} else if packetReceived.TxPublish != nil {
-		g.miner.ChGossiperToMiner <- &packetReceived
+		g.fileMiner.ChGossiperToMiner <- &packetReceived
 	} else if packetReceived.BlockPublish != nil {
-		g.miner.ChGossiperToMiner <- &packetReceived
+		g.fileMiner.ChGossiperToMiner <- &packetReceived
 	}
 }
 
@@ -505,16 +505,47 @@ func (g *Gossiper) RouteRumor() {
 
 // ****** MINER ******
 // *******************
-func (g *Gossiper) Mining() {
-	// Start the Miner
-	go g.miner.StartMining()
+func (g *Gossiper) FileMining() {
+	// Start the Miner (file Miner and pk miner)
+	go g.fileMiner.StartMining()
+	//go g.pkMiner.StartMining()
 
-	// Handle messages from the miner
-	for {
-		packetToSend := <-g.miner.ChMinerToGossiper
-		// Broadcast the message
-		g.BroadcastMessage(packetToSend, nil)
-	}
+	// Handle messages from the file miner
+	go func() {
+		for {
+			packetToSend := <-g.fileMiner.ChMinerToGossiper
+			// Broadcast the message
+			g.BroadcastMessage(packetToSend, nil)
+		}
+	}()
+
+	// Handle messages from the pk miner
+	/*
+		go func() {
+			for {
+				packetToSend := <-g.pkMiner.ChMinerToGossiper
+				// Broadcast the message
+				g.BroadcastMessage(packetToSend, nil)
+			}
+		}()
+	*/
+}
+
+func (g *Gossiper) PkMining() {
+	fmt.Println("Starting the pk miner")
+	// Start the Miner (file Miner and pk miner)
+	//go g.pkMiner.StartMining()
+
+	// Handle messages from the pk miner
+	/*
+		go func() {
+			for {
+				packetToSend := <-g.pkMiner.ChMinerToGossiper
+				// Broadcast the message
+				g.BroadcastMessage(packetToSend, nil)
+			}
+		}()
+	*/
 }
 
 // ****** Functions to send ******

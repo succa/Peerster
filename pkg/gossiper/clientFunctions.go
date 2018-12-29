@@ -153,7 +153,7 @@ func (g *Gossiper) ShareFile(filePath string) error {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	//after := time.After(20 * time.Second)
 	for range ticker.C {
-		blockchainMetaHash, ok := g.miner.GetMetaFileFromBlockchain(filepath.Base(filePath))
+		blockchainMetaHash, ok := g.fileMiner.GetMetaFileFromBlockchain(filepath.Base(filePath))
 		if !ok {
 			// the tx has not been processed yet
 			fmt.Println("Not yet in the blockchain")
@@ -192,7 +192,7 @@ func (g *Gossiper) BroadcastNewTransaction(fileName string, size int64, metafile
 	packetToSend := &message.GossipPacket{TxPublish: txPublish}
 	//fmt.Println("Riccardo: broadcasting new transaction")
 
-	g.miner.ChGossiperToMiner <- packetToSend
+	g.fileMiner.ChGossiperToMiner <- packetToSend
 
 	//g.BroadcastMessage(packetToSend, nil)
 

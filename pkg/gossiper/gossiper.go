@@ -1,11 +1,15 @@
 package gossiper
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
 	"fmt"
 	"net"
+	"os"
 
 	"github.com/succa/Peerster/pkg/blockchain"
 	database "github.com/succa/Peerster/pkg/database"
+	"github.com/succa/Peerster/pkg/onion"
 	peer "github.com/succa/Peerster/pkg/peer"
 	utils "github.com/succa/Peerster/pkg/utils"
 )
@@ -28,15 +32,18 @@ type Gossiper struct {
 	routingTable      *database.RoutingTable
 	dbFile            *database.FileDatabase
 	dbFileCh          *database.FileDatabaseChannels
-	miner             *blockchain.Miner
-	searchHelper      *utils.SearchHelper
-	searchDuplicates  *utils.TTLSearchRequest
-	rtimer            int
-	mode              bool
+	fileMiner         *blockchain.Miner
+	//pkMiner *TODO
+	onionAgent       *onion.OnionAgent
+	searchHelper     *utils.SearchHelper
+	searchDuplicates *utils.TTLSearchRequest
+	rtimer           int
+	mode             bool
+	toor             bool
 }
 
 // Start the connections to client and peers
-func NewGossiper(UIport, address, name string, rtimer int, mode bool) *Gossiper {
+func NewGossiper(UIport, address, name string, rtimer int, mode bool, toor bool) *Gossiper {
 	// Peers
 	udpAddr, err := net.ResolveUDPAddr("udp4", address)
 	if err != nil {
@@ -59,11 +66,13 @@ func NewGossiper(UIport, address, name string, rtimer int, mode bool) *Gossiper 
 		routingTable:      database.NewRoutingTable(),
 		dbFile:            database.NewFileDatabase(),
 		dbFileCh:          database.NewFileDatabaseChannels(),
-		miner:             blockchain.NewMiner(),
-		searchHelper:      utils.NewSearchHelper(),
-		searchDuplicates:  utils.NewTTLSearchRequest(int64(0.5e9)),
-		rtimer:            rtimer,
-		mode:              mode,
+		fileMiner:         blockchain.NewMiner(),
+		//pkMiner: TODO
+		searchHelper:     utils.NewSearchHelper(),
+		searchDuplicates: utils.NewTTLSearchRequest(int64(0.5e9)),
+		rtimer:           rtimer,
+		mode:             mode,
+		toor:             toor,
 	}
 }
 
@@ -86,8 +95,20 @@ func (g *Gossiper) Start() {
 		go g.RouteRumor()
 	}
 
+	if g.toor {
+		public, private, err := g.GenerateKeys()
+		if err != nil {
+			os.Exit(1)
+		}
+		// Initialize onion agent
+		g.OnionAgent := onion.NewOnionAgent(public, private)
+
+		// Start the Pk miner
+		go g.PkMining()
+	}
+
 	// Blockchain Mining
-	go g.Mining()
+	go g.FileMining()
 
 	// Anri-entropy -- BLOCKING
 	g.antiEntropy()
@@ -103,4 +124,15 @@ func (g *Gossiper) handleConn() {
 		}
 		go g.servePeer(addr, buf[:n])
 	}
+}
+
+func (g *Gossiper) GenerateKeys() (*rsa.PublicKey, *rsa.PrivateKey, error) {
+	privatekey, err := rsa.GenerateKey(rand.Reader, 1024)
+	if err != nil {
+		fmt.Println(err.Error)
+		return nil, nil, err
+	}
+	var publickey *rsa.PublicKey
+	publickey = &privatekey.PublicKey
+	return publickey, privatekey, nil
 }

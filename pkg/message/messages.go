@@ -91,6 +91,5 @@ type BlockPublish struct {
 type OnionMessage struct {
 	Cipher      []byte
 	Destination string
-	LastNode    bool
 	HopLimit    uint32
 }
