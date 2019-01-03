@@ -5,6 +5,7 @@ import (
 	"net"
 
 	"github.com/succa/Peerster/pkg/blockchain"
+	"github.com/succa/Peerster/pkg/onionblockchain"
 	database "github.com/succa/Peerster/pkg/database"
 	peer "github.com/succa/Peerster/pkg/peer"
 	utils "github.com/succa/Peerster/pkg/utils"
@@ -29,6 +30,7 @@ type Gossiper struct {
 	dbFile            *database.FileDatabase
 	dbFileCh          *database.FileDatabaseChannels
 	miner             *blockchain.Miner
+	onionMiner        *onionblockchain.Miner
 	searchHelper      *utils.SearchHelper
 	searchDuplicates  *utils.TTLSearchRequest
 	rtimer            int
@@ -60,6 +62,7 @@ func NewGossiper(UIport, address, name string, rtimer int, mode bool) *Gossiper 
 		dbFile:            database.NewFileDatabase(),
 		dbFileCh:          database.NewFileDatabaseChannels(),
 		miner:             blockchain.NewMiner(),
+		onionMiner:        onionblockchain.NewMiner(name),
 		searchHelper:      utils.NewSearchHelper(),
 		searchDuplicates:  utils.NewTTLSearchRequest(int64(0.5e9)),
 		rtimer:            rtimer,

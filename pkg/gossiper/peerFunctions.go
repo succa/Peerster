@@ -359,6 +359,45 @@ func (g *Gossiper) servePeer(addr net.Addr, buf []byte) {
 		g.miner.ChGossiperToMiner <- &packetReceived
 	} else if packetReceived.BlockPublish != nil {
 		g.miner.ChGossiperToMiner <- &packetReceived
+	} else if packetReceived.TxOnionPeer != nil {
+		g.onionMiner.ChGossiperToMiner <- &packetReceived
+	} else if packetReceived.BlockOnionPublish != nil {
+		g.onionMiner.ChGossiperToMiner <- &packetReceived
+	} else if packetReceived.BlockRequest != nil {
+		g.onionMiner.ChGossiperToMiner <- &packetReceived
+	} else if packetReceived.BlockReply != nil {
+		peer, err := peer.New(addr.String())
+		if err != nil {
+			return
+		}
+		g.dbPeers.Insert(peer)
+
+		// If i'm the destination
+		if packetReceived.BlockReply.Destination == g.Name {
+			g.onionMiner.ChGossiperToMiner <- &packetReceived
+			return
+		}
+
+		// Forward the message to next hop
+		nextHop, ok := g.routingTable.GetRoute(packetReceived.BlockReply.Destination)
+		if !ok {
+			fmt.Println("Destination not present in the routing table")
+			return
+		}
+		destinationPeer := g.dbPeers.Get(nextHop)
+		if peer == nil {
+			fmt.Println("Destination not present in the routing table")
+			return
+		}
+
+		//reduce the hop limit
+		packetReceived.BlockReply.HopLimit = packetReceived.BlockReply.HopLimit - 1
+		// discard if reched limit
+		if packetReceived.BlockReply.HopLimit == 0 {
+			fmt.Println("Reached 0")
+			return
+		}
+		g.SendToPeer(destinationPeer, &packetReceived)
 	}
 }
 
@@ -508,12 +547,40 @@ func (g *Gossiper) RouteRumor() {
 func (g *Gossiper) Mining() {
 	// Start the Miner
 	go g.miner.StartMining()
+	go g.onionMiner.StartMining()
+
+	///////TEST
+	/*txPublish := &message.TxOnionPeer {
+		NodeName: g.Name,
+		HopLimit: 10,
+	}
+	packetToSend := &message.GossipPacket{TxOnionPeer: txPublish}
+	g.onionMiner.ChGossiperToMiner <- packetToSend
+	g.BroadcastMessage(packetToSend, nil)*/
+	//////
 
 	// Handle messages from the miner
 	for {
-		packetToSend := <-g.miner.ChMinerToGossiper
-		// Broadcast the message
-		g.BroadcastMessage(packetToSend, nil)
+		select {
+			case packetToSend := <-g.onionMiner.ChMinerToGossiper: 
+				if packetToSend.BlockReply != nil  {
+					nextHop, ok := g.routingTable.GetRoute(packetToSend.BlockReply.Destination)
+					if !ok {
+						fmt.Println("Destination not present in the routing table")
+						continue
+					}
+					destinationPeer := g.dbPeers.Get(nextHop)
+					if destinationPeer == nil {
+						fmt.Println("Destination not present in the routing table")
+						continue
+					}
+					g.SendToPeer(destinationPeer, packetToSend)
+				} else {
+					g.BroadcastMessage(packetToSend, nil)
+				}
+				
+			case packetToSend := <-g.miner.ChMinerToGossiper: g.BroadcastMessage(packetToSend, nil)
+		}
 	}
 }
 

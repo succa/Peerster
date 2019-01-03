@@ -11,6 +11,10 @@ type GossipPacket struct {
 	SearchReply   *SearchReply
 	TxPublish     *TxPublish
 	BlockPublish  *BlockPublish
+	TxOnionPeer	  *TxOnionPeer
+	BlockOnionPublish *BlockOnionPublish
+	BlockRequest  *BlockRequest
+	BlockReply    *BlockReply
 	OnionMessage  *OnionMessage
 }
 
@@ -93,4 +97,29 @@ type OnionMessage struct {
 	Destination string
 	LastNode    bool
 	HopLimit    uint32
+}
+
+type TxOnionPeer struct {
+	NodeName    string
+	PublicKey	[]byte
+	HopLimit 	uint32
+}
+
+type BlockRequest struct {
+	Origin      string
+	HopLimit 	uint32
+	BlockHash	[32]byte
+}
+
+type BlockReply struct {
+	Origin      string
+	Destination string
+	HopLimit 	uint32
+	BlockHash	[32]byte
+	Block		BlockOnion
+}
+
+type BlockOnionPublish struct {
+	Block    BlockOnion
+	HopLimit uint32
 }
