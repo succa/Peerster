@@ -93,6 +93,45 @@ func (g *Gossiper) SendPrivateMessage(msg string, destination string) error {
 	return nil
 }
 
+func (g *Gossiper) SendOnionPrivateMessage(msg string, destination string) error {
+
+	// Private Message
+	privateMessage := &message.PrivateMessage{
+		Origin:      g.Name,
+		ID:          0,
+		Text:        msg,
+		Destination: destination,
+		HopLimit:    10,
+	}
+	gossipPacket := &message.GossipPacket{Private: privateMessage}
+
+	// Onion encrypt
+	// Ask the miner for 3 nodes from the pk blockchain TODO
+	//
+	//
+	//
+	//
+	packetToSend, err := g.onionAgent.OnionEncrypt(gossipPacket, destination, node3, node2, node1)
+
+	// Take the next hop from routing table
+	nextHop, ok := g.routingTable.GetRoute(node3.Name)
+	if !ok {
+		return errors.New("Destination not present in the routing table")
+	}
+	peer := g.dbPeers.Get(nextHop)
+	if peer == nil {
+		return errors.New("Destination not present in the routing table")
+	}
+
+	// Reduce the hop limit before sending
+	packetToSend.Private.HopLimit = packetToSend.Private.HopLimit - 1
+	g.SendToPeer(peer, packetToSend)
+	//TODO TODO decide if we want to save the history
+	//utils.PrintSendingPrivateMessage(privateMessage)
+	//g.dbPrivateMessages.InsertMessage(destination, privateMessage)
+	return nil
+}
+
 func (g *Gossiper) AddNewPeer(peerAddress string) error {
 	peer, err := peer.New(peerAddress)
 	if err != nil {

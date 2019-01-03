@@ -101,7 +101,7 @@ func (g *Gossiper) Start() {
 			os.Exit(1)
 		}
 		// Initialize onion agent
-		g.OnionAgent := onion.NewOnionAgent(public, private)
+		g.onionAgent = onion.NewOnionAgent(public, private)
 
 		// Start the Pk miner
 		go g.PkMining()

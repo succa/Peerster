@@ -359,6 +359,57 @@ func (g *Gossiper) servePeer(addr net.Addr, buf []byte) {
 		g.fileMiner.ChGossiperToMiner <- &packetReceived
 	} else if packetReceived.BlockPublish != nil {
 		g.fileMiner.ChGossiperToMiner <- &packetReceived
+	} else if packetReceived.OnionMessage != nil {
+		//Add the peer if necessary
+		peer, err := peer.New(addr.String())
+		if err != nil {
+			return
+		}
+		g.dbPeers.Insert(peer)
+
+		// If i'm the destination, I decrypt a layer
+		if packetReceived.OnionMessage.Destination == g.Name {
+			gossipMessage, err := g.onionAgent.DecryptLayer(&packetReceived)
+			if err != nil {
+				fmt.Println(err)
+				return
+			}
+			if packetReceived.OnionMessage.LastNode {
+				// This is the clear message
+				if gossipMessage.Private != nil {
+					fmt.Println(gossipMessage.Private)
+					return
+				} //TODO CHECK ALL THE OTHER CASES
+				//
+				//
+				//
+				//
+			} else {
+				packetReceived = *gossipMessage
+			}
+		}
+
+		// Forward the message to next hop
+		nextHop, ok := g.routingTable.GetRoute(packetReceived.OnionMessage.Destination)
+		if !ok {
+			fmt.Println("Destination not present in the routing table")
+			return
+		}
+		destinationPeer := g.dbPeers.Get(nextHop)
+		if peer == nil {
+			fmt.Println("Destination not present in the routing table")
+			return
+		}
+
+		//reduce the hop limit
+		packetReceived.Private.HopLimit = packetReceived.Private.HopLimit - 1
+		// discard if reched limit
+		if packetReceived.Private.HopLimit == 0 {
+			fmt.Println("Reached 0")
+			return
+		}
+
+		g.SendToPeer(destinationPeer, &packetReceived)
 	}
 }
 
