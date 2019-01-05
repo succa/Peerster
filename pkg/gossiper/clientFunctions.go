@@ -94,6 +94,9 @@ func (g *Gossiper) SendPrivateMessage(msg string, destination string) error {
 }
 
 func (g *Gossiper) SendOnionPrivateMessage(msg string, destination string) error {
+	if !g.toor {
+		return errors.New("Onion encription not enabled")
+	}
 
 	// Private Message
 	privateMessage := &message.PrivateMessage{
@@ -107,14 +110,14 @@ func (g *Gossiper) SendOnionPrivateMessage(msg string, destination string) error
 
 	// Onion encrypt
 	// Ask the miner for 3 nodes from the pk blockchain TODO
-	//
-	//
-	//
-	//
-	packetToSend, err := g.onionAgent.OnionEncrypt(gossipPacket, destination, node3, node2, node1)
+	onionNodes := g.onionMiner.GetRoute(destination)
+	packetToSend, err := g.onionAgent.OnionEncrypt(gossipPacket, onionNodes[0], onionNodes[1], onionNodes[2], onionNodes[3])
+	if err != nil {
+		return err
+	}
 
 	// Take the next hop from routing table
-	nextHop, ok := g.routingTable.GetRoute(node3.Name)
+	nextHop, ok := g.routingTable.GetRoute(onionNodes[3].Name)
 	if !ok {
 		return errors.New("Destination not present in the routing table")
 	}
@@ -192,7 +195,7 @@ func (g *Gossiper) ShareFile(filePath string) error {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	//after := time.After(20 * time.Second)
 	for range ticker.C {
-		blockchainMetaHash, ok := g.fileMiner.GetMetaFileFromBlockchain(filepath.Base(filePath))
+		blockchainMetaHash, ok := g.miner.GetMetaFileFromBlockchain(filepath.Base(filePath))
 		if !ok {
 			// the tx has not been processed yet
 			fmt.Println("Not yet in the blockchain")
@@ -231,7 +234,7 @@ func (g *Gossiper) BroadcastNewTransaction(fileName string, size int64, metafile
 	packetToSend := &message.GossipPacket{TxPublish: txPublish}
 	//fmt.Println("Riccardo: broadcasting new transaction")
 
-	g.fileMiner.ChGossiperToMiner <- packetToSend
+	g.miner.ChGossiperToMiner <- packetToSend
 
 	//g.BroadcastMessage(packetToSend, nil)
 

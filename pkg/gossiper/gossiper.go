@@ -10,6 +10,7 @@ import (
 	"github.com/succa/Peerster/pkg/blockchain"
 	database "github.com/succa/Peerster/pkg/database"
 	"github.com/succa/Peerster/pkg/onion"
+	"github.com/succa/Peerster/pkg/onionblockchain"
 	peer "github.com/succa/Peerster/pkg/peer"
 	utils "github.com/succa/Peerster/pkg/utils"
 )
@@ -32,14 +33,14 @@ type Gossiper struct {
 	routingTable      *database.RoutingTable
 	dbFile            *database.FileDatabase
 	dbFileCh          *database.FileDatabaseChannels
-	fileMiner         *blockchain.Miner
-	//pkMiner *TODO
-	onionAgent       *onion.OnionAgent
-	searchHelper     *utils.SearchHelper
-	searchDuplicates *utils.TTLSearchRequest
-	rtimer           int
-	mode             bool
-	toor             bool
+	miner             *blockchain.Miner
+	onionMiner        *onionblockchain.Miner
+	onionAgent        *onion.OnionAgent
+	searchHelper      *utils.SearchHelper
+	searchDuplicates  *utils.TTLSearchRequest
+	rtimer            int
+	mode              bool
+	toor              bool
 }
 
 // Start the connections to client and peers
@@ -66,13 +67,13 @@ func NewGossiper(UIport, address, name string, rtimer int, mode bool, toor bool)
 		routingTable:      database.NewRoutingTable(),
 		dbFile:            database.NewFileDatabase(),
 		dbFileCh:          database.NewFileDatabaseChannels(),
-		fileMiner:         blockchain.NewMiner(),
-		//pkMiner: TODO
-		searchHelper:     utils.NewSearchHelper(),
-		searchDuplicates: utils.NewTTLSearchRequest(int64(0.5e9)),
-		rtimer:           rtimer,
-		mode:             mode,
-		toor:             toor,
+		miner:             blockchain.NewMiner(),
+		onionMiner:        onionblockchain.NewMiner(name),
+		searchHelper:      utils.NewSearchHelper(),
+		searchDuplicates:  utils.NewTTLSearchRequest(int64(0.5e9)),
+		rtimer:            rtimer,
+		mode:              mode,
+		toor:              toor,
 	}
 }
 
@@ -102,13 +103,10 @@ func (g *Gossiper) Start() {
 		}
 		// Initialize onion agent
 		g.onionAgent = onion.NewOnionAgent(public, private)
-
-		// Start the Pk miner
-		go g.PkMining()
 	}
 
-	// Blockchain Mining
-	go g.FileMining()
+	// Blockchains Mining
+	go g.Mining()
 
 	// Anri-entropy -- BLOCKING
 	g.antiEntropy()

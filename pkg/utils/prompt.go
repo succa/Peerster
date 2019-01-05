@@ -109,3 +109,35 @@ func PrintForkLonger(rewind int) {
 func PrintForkShorter(block *message.Block) {
 	fmt.Printf("FORK-SHORTER %x\n", block.Hash())
 }
+
+func PrintFoundOnionBlock(block *message.BlockOnion) {
+	fmt.Printf("ONION FOUND-BLOCK %x\n", block.Hash())
+}
+
+func PrintChainOnion(blocks []*message.BlockOnion) {
+	fmt.Printf("ONION CHAIN ")
+	for i := len(blocks) - 1; i >= 0; i-- {
+		fmt.Printf("%x:", blocks[i].Hash())
+		fmt.Printf("%x", blocks[i].PrevHash)
+		num_tx := len(blocks[i].Transactions)
+		if num_tx > 0 {
+			fmt.Printf(":")
+		}
+		for i, tx := range blocks[i].Transactions {
+			fmt.Printf("%s", tx.NodeName)
+			if i != num_tx - 1 {
+				fmt.Printf(",")
+			}
+		}
+		fmt.Printf(" ")
+	}
+	fmt.Printf("\n")
+}
+
+func PrintForkLongerOnion(rewind int) {
+	fmt.Printf("ONION FORK-LONGER rewind %d blocks\n", rewind)
+}
+
+func PrintForkShorterOnion(block *message.BlockOnion) {
+	fmt.Printf("ONION FORK-SHORTER %x\n", block.Hash())
+}

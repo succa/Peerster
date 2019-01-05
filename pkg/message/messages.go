@@ -1,17 +1,23 @@
 package message
 
+import "crypto/rsa"
+
 type GossipPacket struct {
-	Simple        *SimpleMessage
-	Rumor         *RumorMessage
-	Status        *StatusPacket
-	Private       *PrivateMessage
-	DataRequest   *DataRequest
-	DataReply     *DataReply
-	SearchRequest *SearchRequest
-	SearchReply   *SearchReply
-	TxPublish     *TxPublish
-	BlockPublish  *BlockPublish
-	OnionMessage  *OnionMessage
+	Simple            *SimpleMessage
+	Rumor             *RumorMessage
+	Status            *StatusPacket
+	Private           *PrivateMessage
+	DataRequest       *DataRequest
+	DataReply         *DataReply
+	SearchRequest     *SearchRequest
+	SearchReply       *SearchReply
+	TxPublish         *TxPublish
+	BlockPublish      *BlockPublish
+	TxOnionPeer       *TxOnionPeer
+	BlockOnionPublish *BlockOnionPublish
+	BlockRequest      *BlockRequest
+	BlockReply        *BlockReply
+	OnionMessage      *OnionMessage
 }
 
 type SimpleMessage struct {
@@ -93,4 +99,29 @@ type OnionMessage struct {
 	Destination string
 	LastNode    bool
 	HopLimit    uint32
+}
+
+type TxOnionPeer struct {
+	NodeName  string
+	PublicKey *rsa.PublicKey
+	HopLimit  uint32
+}
+
+type BlockRequest struct {
+	Origin    string
+	HopLimit  uint32
+	BlockHash [32]byte
+}
+
+type BlockReply struct {
+	Origin      string
+	Destination string
+	HopLimit    uint32
+	BlockHash   [32]byte
+	Block       BlockOnion
+}
+
+type BlockOnionPublish struct {
+	Block    BlockOnion
+	HopLimit uint32
 }
