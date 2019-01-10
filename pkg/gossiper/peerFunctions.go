@@ -142,21 +142,21 @@ func (g *Gossiper) servePeer(addr net.Addr, buf []byte) {
 		if packetReceived.DataRequest.Destination == g.Name {
 			var HashValue32 [32]byte
 			copy(HashValue32[:], packetReceived.DataRequest.HashValue)
-			data, ok := g.dbFile.GetHashValue(HashValue32)
+			data, height, ok := g.dbFile.GetByHashValue(HashValue32)
 			if !ok {
 				return
 			}
-			dataReply := &message.DataReply{
+			dataReply := &message.MerkleDataReply{
 				Origin:      g.Name,
 				Destination: packetReceived.DataRequest.Origin,
 				HopLimit:    10,
 				HashValue:   packetReceived.DataRequest.HashValue,
 				Data:        data,
+				Height:      height,
 			}
-			packetToSend := &message.GossipPacket{DataReply: dataReply}
+			packetToSend := &message.GossipPacket{MDataReply: dataReply}
 			//time.Sleep(500 * time.Millisecond)
 			// Reduce the hop limit before send
-			packetToSend.DataReply.HopLimit = packetToSend.DataReply.HopLimit - 1
 			g.SendToPeer(peer, packetToSend)
 			return
 		}
@@ -183,10 +183,10 @@ func (g *Gossiper) servePeer(addr net.Addr, buf []byte) {
 
 		g.SendToPeer(destinationPeer, &packetReceived)
 
-	} else if packetReceived.DataReply != nil {
+	} else if packetReceived.MDataReply != nil {
 		// If I am the destination, forward the message to the thread is handling it
-		if packetReceived.DataReply.Destination == g.Name {
-			ch, ok := g.dbFileCh.Get(packetReceived.DataReply.Origin)
+		if packetReceived.MDataReply.Destination == g.Name {
+			ch, ok := g.dbFileCh.Get(packetReceived.MDataReply.Origin)
 			if !ok {
 				fmt.Println("Received a DataReply message, but no thread to handle it")
 				return
@@ -196,7 +196,7 @@ func (g *Gossiper) servePeer(addr net.Addr, buf []byte) {
 		}
 
 		// Otherwise we have to forward the packet
-		nextHop, ok := g.routingTable.GetRoute(packetReceived.DataReply.Destination)
+		nextHop, ok := g.routingTable.GetRoute(packetReceived.MDataReply.Destination)
 		if !ok {
 			fmt.Println("Destination not present in the routing table")
 			return
@@ -208,103 +208,103 @@ func (g *Gossiper) servePeer(addr net.Addr, buf []byte) {
 		}
 
 		//reduce the hop limit
-		packetReceived.DataReply.HopLimit = packetReceived.DataReply.HopLimit - 1
+		packetReceived.MDataReply.HopLimit = packetReceived.MDataReply.HopLimit - 1
 		// discard if reached limit
-		if packetReceived.DataReply.HopLimit == 0 {
+		if packetReceived.MDataReply.HopLimit == 0 {
 			fmt.Println("Reached 0")
 			return
 		}
 
 		g.SendToPeer(destinationPeer, &packetReceived)
 	} else if packetReceived.SearchRequest != nil {
-		fmt.Println("RECEIVED SEARCH REQUEST from " + peer.Address.String())
-
-		//check if already received
-		if g.searchDuplicates.IsDuplicate(packetReceived.SearchRequest.Origin, strings.Join(packetReceived.SearchRequest.Keywords, ",")) {
-			fmt.Println("Search request is duplicate")
-			return
-		}
-
-		// Insert search request to the db
-		g.searchDuplicates.Insert(packetReceived.SearchRequest.Origin, strings.Join(packetReceived.SearchRequest.Keywords, ","))
-
-		for _, file := range packetReceived.SearchRequest.Keywords {
-			filesFound := g.dbFile.GetFileRegex(file)
-			for _, fileFound := range filesFound {
-				fmt.Print("File Found ")
-				fmt.Println(fileFound.FileName)
-			}
-			if len(filesFound) != 0 {
-				// Send back the result
-				searchReply := &message.SearchReply{
-					Origin:      g.Name,
-					Destination: packetReceived.SearchRequest.Origin,
-					HopLimit:    10, //TODO ask
-					Results:     filesFound,
-				}
-				packetToSend := &message.GossipPacket{
-					SearchReply: searchReply,
-				}
-				// Reduce the hop limit before send
-				packetToSend.SearchReply.HopLimit = packetToSend.SearchReply.HopLimit - 1
-				g.SendToPeer(peer, packetToSend)
-				return
-			}
-		}
-
-		// Reduce the budget and forward the packet to peers if needed
-		budget := packetReceived.SearchRequest.Budget - 1
-		var toAvoid = make(map[string]struct{})
-		fmt.Println(peer.Address.String())
-		toAvoid[peer.Address.String()] = struct{}{}
-		peersAndBudget, err := g.dbPeers.GetRandomWithBudget(budget, toAvoid)
-		if err != nil {
-			//TODO decide what to do
-			fmt.Println("No Peers")
-			return
-		}
-		for _, p := range peersAndBudget {
-			fmt.Print("Sending to ")
-			fmt.Println(p.Peer.Address.String())
-			searchRequest := &message.SearchRequest{
-				Origin:   packetReceived.SearchRequest.Origin,
-				Budget:   p.Budget,
-				Keywords: packetReceived.SearchRequest.Keywords,
-			}
-			packetToSend := &message.GossipPacket{SearchRequest: searchRequest}
-
-			g.SendToPeer(p.Peer, packetToSend)
-
-		}
+		//fmt.Println("RECEIVED SEARCH REQUEST from " + peer.Address.String())
+		//
+		////check if already received
+		//if g.searchDuplicates.IsDuplicate(packetReceived.SearchRequest.Origin, strings.Join(packetReceived.SearchRequest.Keywords, ",")) {
+		//	fmt.Println("Search request is duplicate")
+		//	return
+		//}
+		//
+		//// Insert search request to the db
+		//g.searchDuplicates.Insert(packetReceived.SearchRequest.Origin, strings.Join(packetReceived.SearchRequest.Keywords, ","))
+		//
+		//for _, file := range packetReceived.SearchRequest.Keywords {
+		//	filesFound := g.dbFile.GetFileRegex(file)
+		//	for _, fileFound := range filesFound {
+		//		fmt.Print("File Found ")
+		//		fmt.Println(fileFound.FileName)
+		//	}
+		//	if len(filesFound) != 0 {
+		//		// Send back the result
+		//		searchReply := &message.SearchReply{
+		//			Origin:      g.Name,
+		//			Destination: packetReceived.SearchRequest.Origin,
+		//			HopLimit:    10, //TODO ask
+		//			Results:     filesFound,
+		//		}
+		//		packetToSend := &message.GossipPacket{
+		//			SearchReply: searchReply,
+		//		}
+		//		// Reduce the hop limit before send
+		//		packetToSend.SearchReply.HopLimit = packetToSend.SearchReply.HopLimit - 1
+		//		g.SendToPeer(peer, packetToSend)
+		//		return
+		//	}
+		//}
+		//
+		//// Reduce the budget and forward the packet to peers if needed
+		//budget := packetReceived.SearchRequest.Budget - 1
+		//var toAvoid = make(map[string]struct{})
+		//fmt.Println(peer.Address.String())
+		//toAvoid[peer.Address.String()] = struct{}{}
+		//peersAndBudget, err := g.dbPeers.GetRandomWithBudget(budget, toAvoid)
+		//if err != nil {
+		//	//TODO decide what to do
+		//	fmt.Println("No Peers")
+		//	return
+		//}
+		//for _, p := range peersAndBudget {
+		//	fmt.Print("Sending to ")
+		//	fmt.Println(p.Peer.Address.String())
+		//	searchRequest := &message.SearchRequest{
+		//		Origin:   packetReceived.SearchRequest.Origin,
+		//		Budget:   p.Budget,
+		//		Keywords: packetReceived.SearchRequest.Keywords,
+		//	}
+		//	packetToSend := &message.GossipPacket{SearchRequest: searchRequest}
+		//
+		//	g.SendToPeer(p.Peer, packetToSend)
+		//
+		//}
 	} else if packetReceived.SearchReply != nil {
-		fmt.Println("RECEIVED SEARCH REPLY origin " + packetReceived.SearchReply.Origin + " from " + addr.String())
-		// If I am the destination, insert the results in the db if necessary
-		if packetReceived.SearchReply.Destination == g.Name {
-			g.dbFile.HandleSearchReply(packetReceived.SearchReply)
-			return
-		}
-
-		// Otherwise we have to forward the packet
-		// TODO TODO TODO send directly to the Destination or to the hop?????
-		nextHop, ok := g.routingTable.GetRoute(packetReceived.SearchReply.Destination)
-		if !ok {
-			fmt.Println("Destination not present in the routing table")
-			return
-		}
-		destinationPeer := g.dbPeers.Get(nextHop)
-		if destinationPeer == nil {
-			fmt.Println("Destination not present in the routing table")
-			return
-		}
-
-		//reduce the hop limit
-		packetReceived.SearchReply.HopLimit = packetReceived.SearchReply.HopLimit - 1
-		// discard if reached limit
-		if packetReceived.SearchReply.HopLimit == 0 {
-			fmt.Println("Reached 0")
-			return
-		}
-		g.SendToPeer(destinationPeer, &packetReceived)
+		//fmt.Println("RECEIVED SEARCH REPLY origin " + packetReceived.SearchReply.Origin + " from " + addr.String())
+		//// If I am the destination, insert the results in the db if necessary
+		//if packetReceived.SearchReply.Destination == g.Name {
+		//	g.dbFile.HandleSearchReply(packetReceived.SearchReply)
+		//	return
+		//}
+		//
+		//// Otherwise we have to forward the packet
+		//// TODO TODO TODO send directly to the Destination or to the hop?????
+		//nextHop, ok := g.routingTable.GetRoute(packetReceived.SearchReply.Destination)
+		//if !ok {
+		//	fmt.Println("Destination not present in the routing table")
+		//	return
+		//}
+		//destinationPeer := g.dbPeers.Get(nextHop)
+		//if destinationPeer == nil {
+		//	fmt.Println("Destination not present in the routing table")
+		//	return
+		//}
+		//
+		////reduce the hop limit
+		//packetReceived.SearchReply.HopLimit = packetReceived.SearchReply.HopLimit - 1
+		//// discard if reached limit
+		//if packetReceived.SearchReply.HopLimit == 0 {
+		//	fmt.Println("Reached 0")
+		//	return
+		//}
+		//g.SendToPeer(destinationPeer, &packetReceived)
 	} else if packetReceived.TxPublish != nil {
 		g.miner.ChGossiperToMiner <- &packetReceived
 	} else if packetReceived.BlockPublish != nil {

@@ -6,7 +6,7 @@ type GossipPacket struct {
 	Status            *StatusPacket
 	Private           *PrivateMessage
 	DataRequest       *DataRequest
-	DataReply         *DataReply
+	MDataReply         *MerkleDataReply
 	SearchRequest     *SearchRequest
 	SearchReply       *SearchReply
 	TxPublish         *TxPublish
@@ -54,12 +54,13 @@ type DataRequest struct {
 	HashValue   []byte
 }
 
-type DataReply struct {
+type MerkleDataReply struct {
 	Origin      string
 	Destination string
 	HopLimit    uint32
 	HashValue   []byte
 	Data        []byte
+	Height      int // 0 height stays for real file contents
 }
 
 type SearchRequest struct {

@@ -69,7 +69,7 @@ func PrintRequestFile(filename string, dest string, request string) {
 }
 
 func PrintDownloadingMetafile(file string, dest string) {
-	fmt.Println("DOWNLOADING metafile of " + file + " from " + dest)
+	fmt.Println("DOWNLOADING rootHash of " + file + " from " + dest)
 }
 
 func PrintDownloadingChunk(file string, index int, dest string) {

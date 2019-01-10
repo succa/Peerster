@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -81,6 +82,9 @@ func (w *WebServer) MessageHandler(wr http.ResponseWriter, r *http.Request) {
 			}
 			var list []string
 			for _, f := range files {
+				if f.IsDir() {
+					continue // especially important to skip ./chunks dir, where temporary chunks are stored
+				}
 				list = append(list, f.Name())
 			}
 
@@ -168,8 +172,7 @@ func (w *WebServer) MessageHandler(wr http.ResponseWriter, r *http.Request) {
 			tor == ""):
 			//File to index
 			utils.PrintRequestIndexing(file)
-			ex, _ := os.Executable()
-			filePath := filepath.Dir(ex) + fileFolder + "/" + file
+			filePath, _ := filepath.Abs(path.Join(utils.SharedFilesPath, file))
 			err = w.gossiper.ShareFile(filePath)
 			if err != nil {
 				wr.WriteHeader(http.StatusInternalServerError)

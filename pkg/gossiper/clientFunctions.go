@@ -6,9 +6,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"math"
+	"io/ioutil"
 	"os"
+	"path"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	database "github.com/succa/Peerster/pkg/database"
@@ -167,35 +169,94 @@ func (g *Gossiper) GetPrivateMessages(dest string) []*message.PrivateMessage {
 }
 
 func (g *Gossiper) ShareFile(filePath string) error {
-	file, err := os.Open(filePath)
+    ///////////////////////
+	// creating tmp dirs //
+	///////////////////////
+
+	if _, err := os.Stat(utils.SharedFilesPath); os.IsNotExist(err) {
+		os.Mkdir(utils.SharedFilesPath, utils.FileCommonMode)
+	}
+	if _, err := os.Stat(utils.SharedChunksPath); os.IsNotExist(err) {
+		os.Mkdir(utils.SharedChunksPath, utils.FileCommonMode)
+	}
+
+	sharedFile := &database.FileInfo{FileName:path.Base(filePath)}
+
+	chunksPath := filepath.Join(utils.SharedChunksPath, sharedFile.FileName)
+	if _, err := os.Stat(chunksPath); !os.IsNotExist(err) {
+		fmt.Println("such file is already shared, no more")
+		return nil // it seems like this sharedFile is already being shared
+	}
+
+	os.Mkdir(chunksPath, utils.FileCommonMode)
+
+	//////////////////////////////////
+	// building tree level by level //
+	//////////////////////////////////
+
+	curLevel := make([]*database.MerkleNode, 0)
+	f, err := os.Open(filePath)
+	defer f.Close()
 	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	fileStat, _ := file.Stat()
-	var fileSize = fileStat.Size()
-
-	totalParts := uint64(math.Ceil(float64(fileSize) / float64(fileChunk)))
-
-	meta := make([][32]byte, totalParts)
-	metaByte := make([][]byte, totalParts)
-	for i := uint64(0); i < totalParts; i++ {
-		partSize := int(math.Min(fileChunk, float64(fileSize-int64(i*fileChunk))))
-		partBuffer := make([]byte, partSize)
-		file.Read(partBuffer)
-		// compute the hash
-		chunkHash := sha256.Sum256(partBuffer)
-		meta[i] = chunkHash
-		metaByte[i] = chunkHash[:]
+		fmt.Println(err)
+		return nil
 	}
 
-	metafile := bytes.Join(metaByte, []byte(""))
-	metafileHash := sha256.Sum256(metafile)
-	fmt.Printf("META file %s: %x\n", filepath.Base(filePath), metafileHash)
+	fs, err := f.Stat()
+	if err != nil {
+		return nil
+	}
+	sharedFile.FileSize = fs.Size()
+	nodeset := make(map[[32]byte]*database.MerkleNode)
+
+	// build 0th level
+	offset := int64(0)
+	buffer := make([]byte, utils.FileChunkSize)
+	for {
+		n, err := f.ReadAt(buffer, offset)
+		offset += int64(n)
+		if n <= 0 && err != nil {
+			break // file read succesfully
+		}
+
+		curChunk := buffer[0:n]
+
+		chunkHash := sha256.Sum256(curChunk)
+		ioutil.WriteFile(filepath.Join(chunksPath, database.GetMerkleChunkFileName(chunkHash)), curChunk, utils.FileCommonMode)
+		node := &database.MerkleNode{HashValue: chunkHash, Children: nil, Height: 0}
+		curLevel = append(curLevel, node)
+		nodeset[chunkHash] = node
+	}
+
+	// build upper levels one-by-one
+	childrenNumber := utils.FileChunkSize / 32
+	for len(curLevel) > 1 || curLevel[0].Height == 0 {
+		newLevel := make([]*database.MerkleNode, 0)
+		curChildren := make([]*database.MerkleNode, 0, childrenNumber)
+		for i := 0; i < len(curLevel); i++ {
+			curChildren = append(curChildren, curLevel[i])
+			if (i+1)%childrenNumber == 0 || (i+1) == len(curLevel) {
+				// children collected for a parent creation
+				parentNode := database.ConstructInnerMerkleTree(curChildren, chunksPath)
+				newLevel = append(newLevel, parentNode)
+				nodeset[parentNode.HashValue] = parentNode
+
+				curChildren = make([]*database.MerkleNode, 0, childrenNumber)
+			}
+		}
+
+		curLevel = newLevel
+	}
+
+	if len(curLevel) == 0 {
+		return errors.New("levels built wrongly")
+	}
+
+	sharedFile.RootNode = curLevel[0]
+	sharedFile.ChunkDb = nodeset
 
 	// Publish a new tx and wait for it to be mined
-	g.BroadcastNewTransaction(filepath.Base(filePath), fileSize, metafileHash[:])
+	g.BroadcastNewTransaction(filepath.Base(filePath), sharedFile.FileSize, sharedFile.RootNode.HashValue[:])
 
 	// Ping the Blockchain to see if the tx has been accepted
 	ticker := time.NewTicker(500 * time.Millisecond)
@@ -207,21 +268,21 @@ func (g *Gossiper) ShareFile(filePath string) error {
 			fmt.Println("Not yet in the blockchain")
 			continue
 		}
-		if blockchainMetaHash != metafileHash {
+		if blockchainMetaHash != sharedFile.RootNode.HashValue {
 			fmt.Println("File name already present in the blockchain")
 			return errors.New("File name already present in the blockchain")
 		}
 
 		// File accepted by the blockchain
-		//Save the file info
-		fileInfo := &database.FileInfo{FileName: filepath.Base(filePath), FileSize: fileSize, MetaFile: metafile, MetaHash: metafileHash}
-		g.dbFile.InsertMeta(metafileHash, fileInfo)
+		// Save the file info
+		g.dbFile.InsertFileinfo(sharedFile)
 
+		// info about chunks is stored inside fileinfo
 		//Save the chunk info
-		for index, hash := range meta {
-			g.dbFile.InsertChunk(hash, &database.ChunkInfo{MetaHash: metafileHash, Index: index})
-		}
-		fmt.Println("Handled file")
+		//for index, hash := range meta {
+		//	//g.dbFile.InsertChunk(hash, &ChunkInfo{MetaHash: metafileHash, Index: index})
+		//}
+		fmt.Println("Handled file " + filepath.Base(filePath) + ", got hash: " + hex.EncodeToString(sharedFile.RootNode.HashValue[:]))
 		return nil
 	}
 	return nil
@@ -250,8 +311,8 @@ func (g *Gossiper) BroadcastNewTransaction(fileName string, size int64, metafile
 
 func (g *Gossiper) RequestFile(dest string, file string, request [32]byte) error {
 	//Create _Download folder if it not exists
-	if _, err := os.Stat(downloadFolder); os.IsNotExist(err) {
-		os.Mkdir(downloadFolder, os.ModePerm)
+	if _, err := os.Stat(utils.DownloadsFilesPath); os.IsNotExist(err) {
+		os.Mkdir(utils.DownloadsFilesPath, utils.FileCommonMode)
 	}
 
 	// start a thread that handle the file request
@@ -271,25 +332,82 @@ func (g *Gossiper) RequestFileOnion(dest string, file string, request [32]byte) 
 }
 
 func (g *Gossiper) handleFileRequest(dest string, file string, request [32]byte, tor bool) {
+	if _, err := os.Stat(utils.DownloadsFilesPath); os.IsNotExist(err) {
+		os.Mkdir(utils.DownloadsFilesPath, utils.FileCommonMode)
+	}
+	if _, err := os.Stat(utils.DownloadsChunksPath); os.IsNotExist(err) {
+		os.Mkdir(utils.DownloadsChunksPath, utils.FileCommonMode)
+	}
 
-	//Fist step: download the metafile at dest
-	tempFileName, chunkHashes, err := g.requestMetafile(dest, file, request, tor)
+	chunksPath := filepath.Join(utils.DownloadsChunksPath, file)
+	if _, err := os.Stat(chunksPath); !os.IsNotExist(err) {
+		return // it seems like this file was already downloaded
+	}
 
+	os.Mkdir(chunksPath, utils.FileCommonMode)
+
+	//Fist step: download the root hash at dest
+	chunkHashes, height, err := g.requestRootHash(dest, file, request, tor)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 
+	tempFileName := getTemporaryFilename(file)
+
+	rootNode := &database.MerkleNode{Height:height, HashValue:request, Children:nil}
+
+	nodeset := make(map[[32]byte]*database.MerkleNode)
+	awaitedChildToParent := make(map[[32]byte]*database.MerkleNode)
+
+	chunksToDownload := chunkHashes // queue for bfs
+	nodeset[request] = rootNode
+	for _, childHash := range chunkHashes {
+		awaitedChildToParent[childHash] = rootNode
+	}
+
 	// request for the chunk hashes
-	for index, chunkHash := range chunkHashes {
+	for len(chunksToDownload) != 0 {
+		curHash := chunksToDownload[0]
+
 		//time.Sleep(500 * time.Millisecond)
 		// Download the Chunk
-		err := g.requestChunk(dest, file, tempFileName, request, chunkHash, index, tor)
+		mreply, err := g.requestChunk(dest, tempFileName, curHash[:], tor)
 		if err != nil {
 			// TODO remove the tempFile and return
 			fmt.Println(err)
 			return
 		}
+		fmt.Println("Downloaded chunk " + strconv.Itoa(len(nodeset)) + ", in queue left: " + strconv.Itoa(len(chunksToDownload)))
+
+		curNode := &database.MerkleNode{Height:mreply.Height, Children:make([]*database.MerkleNode, 0), HashValue:curHash}
+		nodeset[curHash] = curNode
+		awaitedChildToParent[curHash].Children = append(awaitedChildToParent[curHash].Children, curNode)
+		ioutil.WriteFile(filepath.Join(chunksPath, database.GetMerkleChunkFileName(curHash)), mreply.Data, utils.FileCommonMode)
+
+		if mreply.Height != 0 {
+			chunkHashes, _ := checkMetafile(mreply.Data)
+			for _, childHash := range chunkHashes {
+				awaitedChildToParent[childHash] = curNode
+				chunksToDownload = append(chunksToDownload, childHash)
+			}
+		} else {
+			file, err := os.OpenFile(downloadFolder+tempFileName, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0660)
+			if err != nil {
+				fmt.Println(err)
+				file.Close()
+				continue
+			}
+			_, err = file.Write(mreply.Data)
+			if err != nil {
+				fmt.Println(err)
+				file.Close()
+				continue
+			}
+			file.Close()
+		}
+
+		chunksToDownload = chunksToDownload[1:]
 	}
 
 	// After all the chunks are collected and the file is reconstructed, rename it
@@ -298,16 +416,29 @@ func (g *Gossiper) handleFileRequest(dest string, file string, request [32]byte,
 		fmt.Println(er)
 		return
 	}
-	//Update the file name in the db
-	g.dbFile.UpdateFileName(request, file)
-	utils.PrintReconstructed(file)
 
+	// finally add file to db
+	f, err := os.Open(downloadFolder + file)
+	defer f.Close()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fs, err := f.Stat()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fileSize := fs.Size()
+	downloadedFile := &database.FileInfo{ChunkDb:nodeset, FileName:file, RootNode:rootNode, FileSize:fileSize}
+	g.dbFile.InsertFileinfo(downloadedFile)
+	utils.PrintReconstructed(file)
 }
 
-func (g *Gossiper) requestMetafile(dest string, file string, request [32]byte, tor bool) (string, [][]byte, error) {
+func (g *Gossiper) requestRootHash(dest string, file string, request [32]byte, tor bool) ([][32]byte, int, error) {
 	//check tor is enabled
 	if tor && !g.tor {
-		return "", nil, errors.New("Tor is not enabled")
+		return nil, -1, errors.New("Tor is not enabled")
 	}
 
 	// create new channel
@@ -337,21 +468,21 @@ func (g *Gossiper) requestMetafile(dest string, file string, request [32]byte, t
 		// Ask the miner for 3 nodes from the pk blockchain
 		onionNodes, err := g.onionMiner.GetRoute(dest)
 		if err != nil {
-			return "", nil, err
+			return nil, -1, err
 		}
 		packetToSend, err = g.onionAgent.OnionEncrypt(packetToSend, onionNodes[0], onionNodes[1], onionNodes[2], onionNodes[3])
 		if err != nil {
-			return "", nil, err
+			return nil, -1, err
 		}
 
 		//Check if the destination is reachable
 		nextHop, oki := g.routingTable.GetRoute(packetToSend.OnionMessage.Destination)
 		if !oki {
-			return "", nil, errors.New("Destination not present in the routing table")
+			return nil, -1, errors.New("Destination not present in the routing table")
 		}
 		peerNextHop = g.dbPeers.Get(nextHop)
 		if peerNextHop == nil {
-			return "", nil, errors.New("Destination not present in the routing table")
+			return nil, -1, errors.New("Destination not present in the routing table")
 		}
 
 		// Reduce the hop limit before sending
@@ -363,11 +494,11 @@ func (g *Gossiper) requestMetafile(dest string, file string, request [32]byte, t
 		nextHop, oki := g.routingTable.GetRoute(dest)
 		if !oki {
 			//TODO maybe we have to return the error somehow
-			return "", nil, errors.New("Destination not present in the routing table")
+			return nil, -1, errors.New("Destination not present in the routing table")
 		}
 		peerNextHop = g.dbPeers.Get(nextHop)
 		if peerNextHop == nil {
-			return "", nil, errors.New("Destination not present in the routing table")
+			return nil, -1, errors.New("Destination not present in the routing table")
 		}
 
 		// Reduce the hop limit before sending
@@ -378,34 +509,38 @@ func (g *Gossiper) requestMetafile(dest string, file string, request [32]byte, t
 	// Nice print
 	utils.PrintDownloadingMetafile(file, dest)
 
-	var chunkHashes [][]byte
+	var chunkHashes [][32]byte
 	var ok bool
-	tempFileName := file + "." + hex.EncodeToString(request[:]) + ".temp"
+	var height int
+	//tempFileName := getTemporaryFilename(file)
 	ticker := time.NewTicker(5 * time.Second)
 	var flag bool
 	for {
 		select {
 		case replay := <-channel:
 			// control the hash received is the same as the one sent
-			if !bytes.Equal(request[:], replay.DataReply.HashValue) {
+			if !bytes.Equal(request[:], replay.MDataReply.HashValue) {
 				fmt.Println("hash received is different")
 				continue
 			}
 			// the first replay must contain the metafile, otherwise the request didnt contain the metahash
-			data := replay.DataReply.Data
+			data := replay.MDataReply.Data
 			chunkHashes, ok = checkMetafile(data)
+			height = replay.MDataReply.Height
 			if !ok {
 				fmt.Print("metafile received is incorrect")
 				continue
 			}
-			// create a new entry in the fileDb
-			fileInfo := &database.FileInfo{
-				FileName: tempFileName,
-				FileSize: 0,
-				MetaFile: data,
-				MetaHash: request,
-			}
-			g.dbFile.InsertMeta(request, fileInfo)
+
+			// entry created only when downloading is completed in order to forbid partial downloading of merkle-shared files
+			//fileInfo := &FileInfo{
+			//	FileName: tempFileName,
+			//	FileSize: 0,
+			//	MetaFile: data,
+			//	MetaHash: request,
+			//}
+
+			ioutil.WriteFile(path.Join(path.Join(utils.DownloadsChunksPath, file), database.GetMerkleChunkFileName(request)), data, utils.FileCommonMode)
 			flag = true
 			break
 		case <-ticker.C:
@@ -419,13 +554,17 @@ func (g *Gossiper) requestMetafile(dest string, file string, request [32]byte, t
 			break
 		}
 	}
-	return tempFileName, chunkHashes, nil
+	return chunkHashes, height, nil
 }
 
-func (g *Gossiper) requestChunk(dest string, file string, tempFileName string, request [32]byte, chunkHash []byte, index int, tor bool) error {
+func getTemporaryFilename(filename string) string {
+	return "tmp-" + filename
+}
+
+func (g *Gossiper) requestChunk(dest string, tempFileName string, chunkHash []byte, tor bool) (*message.MerkleDataReply, error) {
 	//check tor is enabled
 	if tor && !g.tor {
-		return errors.New("Tor is not enabled")
+		return nil, errors.New("Tor is not enabled")
 	}
 
 	// create new channel
@@ -455,22 +594,22 @@ func (g *Gossiper) requestChunk(dest string, file string, tempFileName string, r
 		// Ask the miner for 3 nodes from the pk blockchain
 		onionNodes, err := g.onionMiner.GetRoute(dest)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		packetToSend, err = g.onionAgent.OnionEncrypt(packetToSend, onionNodes[0], onionNodes[1], onionNodes[2], onionNodes[3])
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		//Check if the destination is reachable
 		nextHop, oki := g.routingTable.GetRoute(packetToSend.OnionMessage.Destination)
 		if !oki {
 			//TODO maybe we have to return the error somehow
-			return errors.New("Destination not present in the routing table")
+			return nil, errors.New("Destination not present in the routing table")
 		}
 		peerNextHop = g.dbPeers.Get(nextHop)
 		if peerNextHop == nil {
-			return errors.New("Destination not present in the routing table")
+			return nil, errors.New("Destination not present in the routing table")
 		}
 
 		// Reduce the hop limit before sending
@@ -481,11 +620,11 @@ func (g *Gossiper) requestChunk(dest string, file string, tempFileName string, r
 		nextHop, oki := g.routingTable.GetRoute(dest)
 		if !oki {
 			//TODO maybe we have to return the error somehow
-			return errors.New("Destination not present in the routing table")
+			return nil, errors.New("Destination not present in the routing table")
 		}
 		peerNextHop = g.dbPeers.Get(nextHop)
 		if peerNextHop == nil {
-			return errors.New("Destination not present in the routing table")
+			return nil, errors.New("Destination not present in the routing table")
 		}
 
 		// Reduce the hop limit before sending
@@ -493,304 +632,275 @@ func (g *Gossiper) requestChunk(dest string, file string, tempFileName string, r
 		g.SendToPeer(peerNextHop, packetToSend)
 	}
 
-	// Nice print
-	utils.PrintDownloadingChunk(file, index, dest)
-
 	ticker := time.NewTicker(5 * time.Second)
-	var flag bool
 	for {
 		select {
 		case replay := <-channel:
 			// control the hash received is the same as the one sent
-			if !bytes.Equal(chunkHash, replay.DataReply.HashValue) {
+			if !bytes.Equal(chunkHash, replay.MDataReply.HashValue) {
 				fmt.Println("hash received is different")
 				continue
 			}
-			// the data field contain the 8k chunk of the file
-			dataChunk := replay.DataReply.Data
-			// write the data in the temp file
-			file, err := os.OpenFile(downloadFolder+tempFileName, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0660)
-			if err != nil {
-				fmt.Println(err)
-				file.Close()
-				continue
-			}
-			n, err := file.Write(dataChunk)
-			if err != nil {
-				fmt.Println(err)
-				file.Close()
-				continue
-			}
-			// Update the FileSize in the metaDb
-			g.dbFile.IncreaseFileSize(request, int64(n))
 
-			// Insert hash in the chunkDb
-			var chunkHash32 [32]byte
-			copy(chunkHash32[:], chunkHash)
-			chunkInfo := &database.ChunkInfo{
-				MetaHash: request,
-				Index:    index,
-			}
-			g.dbFile.InsertChunk(chunkHash32, chunkInfo)
-
-			file.Close()
-
-			flag = true
-			break
+			return replay.MDataReply, nil
 		case <-ticker.C:
 			// resend //TODO max number of tentatives??
-			utils.PrintDownloadingChunk(file, index, dest)
+			//PrintDownloadingChunk(file, index, dest)
 			g.SendToPeer(peerNextHop, packetToSend)
 			break
 		}
-		if flag {
-			break
-		}
 	}
-	return nil
+	return nil, nil
 }
 
-func checkMetafile(data []byte) ([][]byte, bool) {
+func checkMetafile(data []byte) ([][32]byte, bool) {
 	// metafile has to be composed by multiple of 32
 	if len(data)%32 != 0 {
 		return nil, false
 	}
-	chunks := make([][]byte, len(data)/32)
+	chunks := make([][32]byte, len(data)/32)
 	for i := 0; i < len(data)/32; i++ {
-		chunks[i] = data[i*32 : i*32+32]
+		copy(chunks[i][:], data[i*32 : i*32+32])
 	}
 	return chunks, true
 }
 
-func (g *Gossiper) SearchFiles(keywords []string, budget uint64) error {
-	if len(keywords) == 0 {
-		return errors.New("No keywords defined")
-	}
+//func (g *Gossiper) SearchFiles(keywords []string, budget uint64) error {
+//	if len(keywords) == 0 {
+//		return errors.New("No keywords defined")
+//	}
+//
+//	// Reset the searches that matches the keywords, we will search for them again
+//	g.dbFile.ResetRequestDbKeywords(keywords)
+//
+//	// Start a thread to do the search
+//	go g.handleSearchFiles(keywords, budget)
+//
+//	return nil
+//
+//}
 
-	// Reset the searches that matches the keywords, we will search for them again
-	g.dbFile.ResetRequestDbKeywords(keywords)
+//func (g *Gossiper) handleSearchFiles(keywords []string, budget uint64) {
+//	//go g.downloadMetafileSearched(keywords)
+//
+//	//this function sends the messages to the peers, and a thread handle the replies
+//	//a channel makes the two communicate, so that if the timout accours the thread is killed, or if the
+//	//thread reach the threashold communicate it to this. The event is the closing channel
+//
+//	// Budget specified //TODO but we reach 32 anyway if it is lower????
+//	if budget != 0 {
+//
+//		//communication := make(chan bool)
+//		//go g.listenForSearchReplies(2, communication)
+//
+//		peersAndBudget, err := g.dbPeers.GetRandomWithBudget(budget, nil)
+//		if err != nil {
+//			//TODO decide what to do
+//			//close(communication)
+//			fmt.Println("No Peers")
+//			return
+//		}
+//
+//		for _, p := range peersAndBudget {
+//			searchRequest := &message.SearchRequest{
+//				Origin:   g.Name,
+//				Budget:   p.Budget,
+//				Keywords: keywords,
+//			}
+//			packetToSend := &message.GossipPacket{SearchRequest: searchRequest}
+//
+//			fmt.Println("SENDING SEARCH REQUEST to " + p.Peer.Address.String())
+//			g.SendToPeer(p.Peer, packetToSend)
+//
+//		}
+//	} else {
+//
+//		budget = 1
+//		threshold := 2
+//		// wait for the replay //TODO timeout? resend??
+//		//TODO cancellarli dal db alla fine?
+//		for {
+//			select {
+//			//case _, ok := <-communication:
+//			//	if !ok {
+//			//		return
+//			//	}
+//			case <-time.Tick(1 * time.Second):
+//				// Look at the file Database if there are 2 completed matches
+//				if g.dbFile.CheckCompletedSearch(keywords, threshold) {
+//					fmt.Println("SEARCH FINISHED")
+//					return
+//				}
+//
+//				budget = budget * 2
+//				if budget > 32 {
+//					//close(communication)
+//					return
+//				}
+//				fmt.Printf("Budget %d\n", int(budget))
+//
+//				peersAndBudget, err := g.dbPeers.GetRandomWithBudget(budget, nil)
+//				if err != nil {
+//					//TODO decide what to do
+//					fmt.Println("No Peers")
+//					return
+//				}
+//				for _, p := range peersAndBudget {
+//					searchRequest := &message.SearchRequest{
+//						Origin:   g.Name,
+//						Budget:   p.Budget,
+//						Keywords: keywords,
+//					}
+//					packetToSend := &message.GossipPacket{SearchRequest: searchRequest}
+//
+//					//fmt.Println("SENDING SEARCH REQUEST to " + p.Peer.Address.String())
+//					g.SendToPeer(p.Peer, packetToSend)
+//				}
+//			}
+//		}
+//	}
+//
+//}
 
-	// Start a thread to do the search
-	go g.handleSearchFiles(keywords, budget)
+//func (g *Gossiper) downloadMetafileSearched(keywords []string) {
+//	ticker := time.NewTicker(500 * time.Millisecond)
+//	after := time.After(20 * time.Second)
+//	for {
+//		select {
+//		case <-after:
+//			return
+//		case <-ticker.C:
+//			requestInfos := g.dbFile.GetCompletedSearches(keywords)
+//			for _, requestInfo := range requestInfos {
+//				g.requestMetafile(
+//					requestInfo.ChunkMap[0],
+//					requestInfo.FileName,
+//					requestInfo.MetaHash,
+//				)
+//			}
+//		}
+//	}
+//}
 
-	return nil
+//func (g *Gossiper) GetCompletedSearches(keywords []string) (ret []string) {
+//	requestInfos := g.dbFile.GetCompletedSearchesClient(keywords)
+//	for _, requestInfo := range requestInfos {
+//		ret = append(ret, requestInfo.FileName)
+//	}
+//	return ret
+//}
+//
+//func (g *Gossiper) DownloadSearchedFile(destFileName string, metaHash [32]byte) error {
+//	//Create _Download folder if it not exists
+//	if _, err := os.Stat(downloadFolder); os.IsNotExist(err) {
+//		os.Mkdir(downloadFolder, os.ModePerm)
+//	}
+//
+//	// get the requestInfo
+//	requestInfo, ok := g.dbFile.GetRequestInfo(metaHash)
+//	if !ok {
+//		return errors.New("Failed to retrieve request info")
+//	}
+//
+//	g.handleFileRequest(requestInfo.ChunkMap[1], destFileName, metaHash)
+//	return nil
+//
+//	fileInfo, ok := g.dbFile.GetMeta(requestInfo.MetaHash)
+//	if !ok {
+//		return errors.New("Failed to retrieve file info")
+//	}
+//
+//	chunkHashes, ok := checkMetafile(fileInfo.MetaFile)
+//	if !ok {
+//		return errors.New("Failed to parse chunk hashes")
+//	}
+//
+//	tempFileName := fileInfo.FileName
+//
+//	for i := 0; i < requestInfo.ChunkNum; i++ {
+//		dest := requestInfo.ChunkMap[i]
+//		request := requestInfo.MetaHash
+//		// Download the Chunk
+//		err := g.requestChunk(dest, destFileName, tempFileName, request, chunkHashes[i], i)
+//		if err != nil {
+//			// TODO remove the tempFile and return
+//			fmt.Println(err)
+//			return err
+//		}
+//	}
+//
+//	// After all the chunks are collected and the file is reconstructed, rename it
+//	er := os.Rename(downloadFolder+tempFileName, downloadFolder+destFileName)
+//	if er != nil {
+//		fmt.Println(er)
+//		return er
+//	}
+//	//Update the file name in the db
+//	g.dbFile.UpdateFileName(fileInfo.MetaHash, downloadFolder+destFileName)
+//	PrintReconstructed(destFileName)
+//
+//	return nil
+//}
 
-}
-
-func (g *Gossiper) handleSearchFiles(keywords []string, budget uint64) {
-	go g.downloadMetafileSearched(keywords)
-
-	//this function sends the messages to the peers, and a thread handle the replies
-	//a channel makes the two communicate, so that if the timout accours the thread is killed, or if the
-	//thread reach the threashold communicate it to this. The event is the closing channel
-
-	// Budget specified //TODO but we reach 32 anyway if it is lower????
-	if budget != 0 {
-
-		//communication := make(chan bool)
-		//go g.listenForSearchReplies(2, communication)
-
-		peersAndBudget, err := g.dbPeers.GetRandomWithBudget(budget, nil)
-		if err != nil {
-			//TODO decide what to do
-			//close(communication)
-			fmt.Println("No Peers")
-			return
-		}
-
-		for _, p := range peersAndBudget {
-			searchRequest := &message.SearchRequest{
-				Origin:   g.Name,
-				Budget:   p.Budget,
-				Keywords: keywords,
-			}
-			packetToSend := &message.GossipPacket{SearchRequest: searchRequest}
-
-			fmt.Println("SENDING SEARCH REQUEST to " + p.Peer.Address.String())
-			g.SendToPeer(p.Peer, packetToSend)
-
-		}
-	} else {
-
-		budget = 1
-		threshold := 2
-		// wait for the replay //TODO timeout? resend??
-		//TODO cancellarli dal db alla fine?
-		for {
-			select {
-			//case _, ok := <-communication:
-			//	if !ok {
-			//		return
-			//	}
-			case <-time.Tick(1 * time.Second):
-				// Look at the file Database if there are 2 completed matches
-				if g.dbFile.CheckCompletedSearch(keywords, threshold) {
-					fmt.Println("SEARCH FINISHED")
-					return
-				}
-
-				budget = budget * 2
-				if budget > 32 {
-					//close(communication)
-					return
-				}
-				fmt.Printf("Budget %d\n", int(budget))
-
-				peersAndBudget, err := g.dbPeers.GetRandomWithBudget(budget, nil)
-				if err != nil {
-					//TODO decide what to do
-					fmt.Println("No Peers")
-					return
-				}
-				for _, p := range peersAndBudget {
-					searchRequest := &message.SearchRequest{
-						Origin:   g.Name,
-						Budget:   p.Budget,
-						Keywords: keywords,
-					}
-					packetToSend := &message.GossipPacket{SearchRequest: searchRequest}
-
-					//fmt.Println("SENDING SEARCH REQUEST to " + p.Peer.Address.String())
-					g.SendToPeer(p.Peer, packetToSend)
-				}
-			}
-		}
-	}
-
-}
-
-func (g *Gossiper) downloadMetafileSearched(keywords []string) {
-	ticker := time.NewTicker(500 * time.Millisecond)
-	after := time.After(20 * time.Second)
-	for {
-		select {
-		case <-after:
-			return
-		case <-ticker.C:
-			requestInfos := g.dbFile.GetCompletedSearches(keywords)
-			for _, requestInfo := range requestInfos {
-				g.requestMetafile(
-					requestInfo.ChunkMap[0],
-					requestInfo.FileName,
-					requestInfo.MetaHash,
-					false,
-				)
-			}
-		}
-	}
-}
-
-func (g *Gossiper) GetCompletedSearches(keywords []string) (ret []string) {
-	requestInfos := g.dbFile.GetCompletedSearchesClient(keywords)
-	for _, requestInfo := range requestInfos {
-		ret = append(ret, requestInfo.FileName)
-	}
-	return ret
-}
-
-func (g *Gossiper) DownloadSearchedFile(destFileName string, metaHash [32]byte) error {
-	//Create _Download folder if it not exists
-	if _, err := os.Stat(downloadFolder); os.IsNotExist(err) {
-		os.Mkdir(downloadFolder, os.ModePerm)
-	}
-
-	// get the requestInfo
-	requestInfo, ok := g.dbFile.GetRequestInfo(metaHash)
-	if !ok {
-		return errors.New("Failed to retrieve request info")
-	}
-	fileInfo, ok := g.dbFile.GetMeta(requestInfo.MetaHash)
-	if !ok {
-		return errors.New("Failed to retrieve file info")
-	}
-
-	chunkHashes, ok := checkMetafile(fileInfo.MetaFile)
-	if !ok {
-		return errors.New("Failed to parse chunk hashes")
-	}
-
-	tempFileName := fileInfo.FileName
-
-	for i := 0; i < requestInfo.ChunkNum; i++ {
-		dest := requestInfo.ChunkMap[i]
-		request := requestInfo.MetaHash
-		// Download the Chunk
-		err := g.requestChunk(dest, destFileName, tempFileName, request, chunkHashes[i], i, false)
-		if err != nil {
-			// TODO remove the tempFile and return
-			fmt.Println(err)
-			return err
-		}
-	}
-
-	// After all the chunks are collected and the file is reconstructed, rename it
-	er := os.Rename(downloadFolder+tempFileName, downloadFolder+destFileName)
-	if er != nil {
-		fmt.Println(er)
-		return er
-	}
-	//Update the file name in the db
-	g.dbFile.UpdateFileName(fileInfo.MetaHash, downloadFolder+destFileName)
-	utils.PrintReconstructed(destFileName)
-
-	return nil
-}
-
-func (g *Gossiper) DownloadSearchedFileFromName(destFileName string) error {
-	//Create _Download folder if it not exists
-	if _, err := os.Stat(downloadFolder); os.IsNotExist(err) {
-		os.Mkdir(downloadFolder, os.ModePerm)
-	}
-
-	// get the requestInfo
-	metaHash, ok := g.dbFile.GetMetaFromRequestName(destFileName)
-	if !ok {
-		return errors.New("Failed to retrieve meta hash")
-	}
-	requestInfo, ok := g.dbFile.GetRequestInfo(metaHash)
-	if !ok {
-		return errors.New("Failed to retrieve request info")
-	}
-	fileInfo, ok := g.dbFile.GetMeta(requestInfo.MetaHash)
-	if !ok {
-		return errors.New("Failed to retrieve file info")
-	}
-
-	chunkHashes, ok := checkMetafile(fileInfo.MetaFile)
-	if !ok {
-		return errors.New("Failed to parse chunk hashes")
-	}
-
-	tempFileName := fileInfo.FileName
-	//fmt.Println("DestFileName " + destFileName)
-	//fmt.Println("tempFileName " + tempFileName)
-	// if the file was already downloaded, the tempfilename is equal to the file name (it was aready retitled)
-	if destFileName == filepath.Base(tempFileName) {
-		fmt.Println("Already downloaded")
-		return nil
-	}
-
-	for i := 0; i < requestInfo.ChunkNum; i++ {
-		dest := requestInfo.ChunkMap[i]
-		request := requestInfo.MetaHash
-		// Download the Chunk
-		err := g.requestChunk(dest, destFileName, tempFileName, request, chunkHashes[i], i, false)
-		if err != nil {
-			// TODO remove the tempFile and return
-			fmt.Println(err)
-			return err
-		}
-	}
-
-	// After all the chunks are collected and the file is reconstructed, rename it
-	er := os.Rename(downloadFolder+tempFileName, downloadFolder+destFileName)
-	if er != nil {
-		fmt.Println(er)
-		return er
-	}
-	//Update the file name in the db
-	g.dbFile.UpdateFileName(fileInfo.MetaHash, downloadFolder+destFileName)
-	utils.PrintReconstructed(destFileName)
-
-	return nil
-}
+//func (g *Gossiper) DownloadSearchedFileFromName(destFileName string) error {
+//	//Create _Download folder if it not exists
+//	if _, err := os.Stat(downloadFolder); os.IsNotExist(err) {
+//		os.Mkdir(downloadFolder, os.ModePerm)
+//	}
+//
+//	// get the requestInfo
+//	metaHash, ok := g.dbFile.GetMetaFromRequestName(destFileName)
+//	if !ok {
+//		return errors.New("Failed to retrieve meta hash")
+//	}
+//	requestInfo, ok := g.dbFile.GetRequestInfo(metaHash)
+//	if !ok {
+//		return errors.New("Failed to retrieve request info")
+//	}
+//
+//	g.handleFileRequest(requestInfo.ChunkMap[1], destFileName, metaHash)
+//	return nil
+//
+//	fileInfo, ok := g.dbFile.GetMeta(requestInfo.MetaHash)
+//	if !ok {
+//		return errors.New("Failed to retrieve file info")
+//	}
+//
+//	chunkHashes, ok := checkMetafile(fileInfo.MetaFile)
+//	if !ok {
+//		return errors.New("Failed to parse chunk hashes")
+//	}
+//
+//	tempFileName := fileInfo.FileName
+//	//fmt.Println("DestFileName " + destFileName)
+//	//fmt.Println("tempFileName " + tempFileName)
+//	// if the file was already downloaded, the tempfilename is equal to the file name (it was aready retitled)
+//	if destFileName == filepath.Base(tempFileName) {
+//		fmt.Println("Already downloaded")
+//		return nil
+//	}
+//
+//	for i := 0; i < requestInfo.ChunkNum; i++ {
+//		dest := requestInfo.ChunkMap[i]
+//		request := requestInfo.MetaHash
+//		// Download the Chunk
+//		err := g.requestChunk(dest, destFileName, tempFileName, request, chunkHashes[i], i)
+//		if err != nil {
+//			// TODO remove the tempFile and return
+//			fmt.Println(err)
+//			return err
+//		}
+//	}
+//
+//	// After all the chunks are collected and the file is reconstructed, rename it
+//	er := os.Rename(downloadFolder+tempFileName, downloadFolder+destFileName)
+//	if er != nil {
+//		fmt.Println(er)
+//		return er
+//	}
+//	//Update the file name in the db
+//	g.dbFile.UpdateFileName(fileInfo.MetaHash, downloadFolder+destFileName)
+//	PrintReconstructed(destFileName)
+//
+//	return nil
+//}
