@@ -132,6 +132,7 @@ func (m *Miner) StartMining() {
 func (m *Miner) MiningProcess() {
 
 	// Infinite cicle to mine new blocks
+	time.Sleep(3 * time.Second)
 
 	for {
 		txs, prevHash := m.DbBlockchain.GetAvailableTxsAndLastBlockHash()
@@ -147,6 +148,7 @@ func (m *Miner) MiningProcess() {
 		}
 		// mining process
 		//time.Sleep(500 * time.Millisecond)
+		//fmt.Println("Riccardo mining.......")
 		rand.Read(b)
 		copy(nonce[:], b)
 		newBlock.Nonce = nonce
@@ -174,13 +176,13 @@ func (m *Miner) BroadcastNewBlock(block *message.BlockOnion) {
 
 func checkSuccesfullBlock(block *message.BlockOnion) bool {
 	hash := block.Hash()
-	if bytes.HasPrefix(hash[:], make([]byte, 3)) {
+	if bytes.HasPrefix(hash[:], make([]byte, 2)) {
 		return true
 	}
 	return false
 }
 
-func (m *Miner) GetRoute(destination string) []*onion.OnionRouter {
+func (m *Miner) GetRoute(destination string) ([]*onion.OnionRouter, error) {
 	return m.DbBlockchain.GetRoute(destination, m.name)
 }
 

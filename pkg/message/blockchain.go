@@ -1,11 +1,8 @@
 package message
 
 import (
-	"crypto/rsa"
 	"crypto/sha256"
-	"crypto/x509"
 	"encoding/binary"
-	"encoding/pem"
 )
 
 type File struct {
@@ -71,11 +68,12 @@ func (t *TxOnionPeer) Hash() (out [32]byte) {
 	binary.Write(h, binary.LittleEndian,
 		uint32(len(t.NodeName)))
 	h.Write([]byte(t.NodeName))
-	h.Write(PublicKeyToBytes(t.PublicKey))
+	h.Write([]byte(t.PublicKey))
 	copy(out[:], h.Sum(nil))
 	return
 }
 
+/*
 func PublicKeyToBytes(pub *rsa.PublicKey) []byte {
 	pubASN1, err := x509.MarshalPKIXPublicKey(pub)
 	if err != nil {
@@ -89,3 +87,4 @@ func PublicKeyToBytes(pub *rsa.PublicKey) []byte {
 
 	return pubBytes
 }
+*/

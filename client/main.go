@@ -15,6 +15,7 @@ type ClientMessage struct {
 	Request  string
 	Keywords string
 	Budget   float64
+	Tor      string
 }
 
 const fileFolder string = "/../_SharedFiles"
@@ -59,6 +60,7 @@ func main() {
 		Request:  *request,
 		Keywords: *keywords,
 		Budget:   float64(*budget),
+		Tor:      "",
 	}
 
 	jsonStr, err := json.Marshal(message)

@@ -353,13 +353,50 @@ func (g *Gossiper) servePeer(addr net.Addr, buf []byte) {
 			if packetReceived.OnionMessage.LastNode {
 				// This is the clear message
 				if gossipMessage.Private != nil {
-					fmt.Println(gossipMessage.Private)
+					utils.PrintPrivateMessage(gossipMessage.Private)
+					g.dbPrivateMessages.InsertMessage(gossipMessage.Private.Origin, gossipMessage.Private)
 					return
-				} //TODO CHECK ALL THE OTHER CASES
-				//
-				//
-				//
-				//
+				} else if gossipMessage.DataRequest != nil {
+					// We have to replay again with onion encryption
+					var HashValue32 [32]byte
+					copy(HashValue32[:], gossipMessage.DataRequest.HashValue)
+					data, ok := g.dbFile.GetHashValue(HashValue32)
+					if !ok {
+						return
+					}
+					dataReply := &message.DataReply{
+						Origin:      g.Name,
+						Destination: gossipMessage.DataRequest.Origin,
+						HopLimit:    10,
+						HashValue:   gossipMessage.DataRequest.HashValue,
+						Data:        data,
+					}
+					packetToSend := &message.GossipPacket{DataReply: dataReply}
+
+					// Onion encrypt
+					// Ask the miner for 3 nodes from the pk blockchain
+					onionNodes, err := g.onionMiner.GetRoute(gossipMessage.DataRequest.Origin)
+					if err != nil {
+						return
+					}
+					packetToSend, err = g.onionAgent.OnionEncrypt(packetToSend, onionNodes[0], onionNodes[1], onionNodes[2], onionNodes[3])
+					if err != nil {
+						return
+					}
+					//time.Sleep(500 * time.Millisecond)
+					// Reduce the hop limit before send
+					packetToSend.OnionMessage.HopLimit = packetToSend.OnionMessage.HopLimit - 1
+					g.SendToPeer(peer, packetToSend)
+					return
+				} else if gossipMessage.DataReply != nil {
+					ch, ok := g.dbFileCh.Get(gossipMessage.DataReply.Origin)
+					if !ok {
+						fmt.Println("Received a DataReply message, but no thread to handle it")
+						return
+					}
+					ch <- *gossipMessage
+					return
+				}
 			} else {
 				packetReceived = *gossipMessage
 			}
@@ -379,9 +416,9 @@ func (g *Gossiper) servePeer(addr net.Addr, buf []byte) {
 		}
 
 		//reduce the hop limit
-		packetReceived.Private.HopLimit = packetReceived.Private.HopLimit - 1
+		packetReceived.OnionMessage.HopLimit = packetReceived.OnionMessage.HopLimit - 1
 		// discard if reched limit
-		if packetReceived.Private.HopLimit == 0 {
+		if packetReceived.OnionMessage.HopLimit == 0 {
 			fmt.Println("Reached 0")
 			return
 		}
@@ -535,7 +572,7 @@ func (g *Gossiper) RouteRumor() {
 func (g *Gossiper) Mining() {
 	// Start the Miner
 	go g.miner.StartMining()
-	if g.toor {
+	if g.tor {
 		go g.onionMiner.StartMining()
 	}
 

@@ -18,7 +18,7 @@ func main() {
 	var peersString = flag.String("peers", "", "comma separated list of peers of the form ip:port")
 	var rtimer = flag.Int("rtimer", 0, "route rumor sending period in seconds, 0 to disable sending of route rumors (default 0)")
 	var mode = flag.Bool("simple", false, "run gossiper in simple broadcast mode")
-	var toor = flag.Bool("toor", false, "abilitate the gossiper for onion routing")
+	var tor = flag.Bool("tor", false, "abilitate the gossiper for onion routing")
 
 	flag.Parse()
 
@@ -31,7 +31,7 @@ func main() {
 	peers := utils.ParsePeers(*peersString)
 
 	// create Gossiper
-	gossiper := gossiper.NewGossiper(*UIport, *gossipAddr, *name, *rtimer, *mode, *toor)
+	gossiper := gossiper.NewGossiper(*UIport, *gossipAddr, *name, *rtimer, *mode, *tor)
 
 	// Add known initial Peers
 	gossiper.AddKnownPeers(peers)

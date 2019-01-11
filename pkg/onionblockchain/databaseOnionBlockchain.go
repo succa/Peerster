@@ -1,7 +1,7 @@
 package onionblockchain
 
 import (
-	"crypto/rsa"
+	"errors"
 	"fmt"
 	"math/rand"
 	"sync"
@@ -17,7 +17,7 @@ type DatabaseBlockchain struct {
 	TemporaryStorage map[[32]byte]*message.BlockOnion
 	LastBlock        *message.BlockOnion
 	LongestChainSize int
-	Keys             map[string]*rsa.PublicKey
+	Keys             map[string][]byte
 	mux              sync.RWMutex
 }
 
@@ -27,7 +27,7 @@ func NewDatabaseBlockchain() *DatabaseBlockchain {
 		Blockchain:       make(map[[32]byte]*message.BlockOnion),
 		TemporaryStorage: make(map[[32]byte]*message.BlockOnion),
 		LongestChainSize: 0,
-		Keys:             make(map[string]*rsa.PublicKey),
+		Keys:             make(map[string][]byte),
 	}
 }
 
@@ -218,29 +218,40 @@ func (b *DatabaseBlockchain) getChain(block *message.BlockOnion) []*message.Bloc
 
 func (b *DatabaseBlockchain) updateKeysDb(block *message.BlockOnion) {
 	for _, tx := range block.Transactions {
-		b.Keys[tx.NodeName] = tx.PublicKey
+		b.Keys[tx.NodeName] = []byte(tx.PublicKey)
 		delete(b.TxPool, tx.NodeName)
 	}
 }
 
-func (b *DatabaseBlockchain) GetRoute(destination string, my string) []*onion.OnionRouter {
+func (b *DatabaseBlockchain) GetRoute(destination string, my string) ([]*onion.OnionRouter, error) {
 	b.mux.RLock()
 	defer b.mux.RUnlock()
+	//fmt.Println("Riccardo printo le keys")
+	//for k, _ := range b.Keys {
+	//	fmt.Println(k)
+	//}
+	if _, ok := b.Keys[destination]; !ok {
+		return nil, errors.New("Destination does not implement onion encryption")
+	}
 	var result []*onion.OnionRouter
-	result = append(result, &onion.OnionRouter{Name: destination, PublicKey: b.Keys[destination]})
-	//result[destination] = b.Keys[destination]
+	result = append(result, &onion.OnionRouter{Name: destination, PublicKey: string(b.Keys[destination])})
 	keys := make([]string, 0)
 	for k, _ := range b.Keys {
 		if k != destination && k != my {
 			keys = append(keys, k)
 		}
 	}
+	if len(keys) < 3 {
+		return nil, errors.New("Not enough routers to do onion encryption")
+	}
 	rand.Shuffle(len(keys), func(i, j int) { keys[i], keys[j] = keys[j], keys[i] })
 	peers := keys[:3]
 	for _, v := range peers {
-		result = append(result, &onion.OnionRouter{Name: v, PublicKey: b.Keys[v]})
+		//fmt.Println(v)
+		//fmt.Println(string(b.Keys[v]))
+		result = append(result, &onion.OnionRouter{Name: v, PublicKey: string(b.Keys[v])})
 	}
-	return result
+	return result, nil
 }
 
 /*func (b *DatabaseBlockchain) GetAvailableTxs() []message.TxOnionPeer {

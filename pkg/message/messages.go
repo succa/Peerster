@@ -1,7 +1,5 @@
 package message
 
-import "crypto/rsa"
-
 type GossipPacket struct {
 	Simple            *SimpleMessage
 	Rumor             *RumorMessage
@@ -95,15 +93,16 @@ type BlockPublish struct {
 }
 
 type OnionMessage struct {
-	Cipher      []byte
-	Destination string
-	LastNode    bool
-	HopLimit    uint32
+	Cipher          []byte
+	AESKeyEncrypted []byte
+	Destination     string
+	LastNode        bool
+	HopLimit        uint32
 }
 
 type TxOnionPeer struct {
 	NodeName  string
-	PublicKey *rsa.PublicKey
+	PublicKey string
 	HopLimit  uint32
 }
 

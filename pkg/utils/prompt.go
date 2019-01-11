@@ -125,13 +125,19 @@ func PrintChainOnion(blocks []*message.BlockOnion) {
 		}
 		for i, tx := range blocks[i].Transactions {
 			fmt.Printf("%s", tx.NodeName)
-			if i != num_tx - 1 {
+			if i != num_tx-1 {
 				fmt.Printf(",")
 			}
 		}
 		fmt.Printf(" ")
 	}
 	fmt.Printf("\n")
+	/*
+		for i := len(blocks) - 1; i >= 0; i-- {
+			fmt.Printf("[%x] ", blocks[i].Hash())
+		}
+		fmt.Printf("\n")
+	*/
 }
 
 func PrintForkLongerOnion(rewind int) {
@@ -140,4 +146,8 @@ func PrintForkLongerOnion(rewind int) {
 
 func PrintForkShorterOnion(block *message.BlockOnion) {
 	fmt.Printf("ONION FORK-SHORTER %x\n", block.Hash())
+}
+
+func PrintOnionMessage(onion *message.OnionMessage) {
+	fmt.Print("ONION MESSAGE Destination %s Chiper %x\n", onion.Destination, onion.Cipher)
 }
