@@ -20,14 +20,14 @@ func (g *Gossiper) servePeer(addr net.Addr, buf []byte) {
 	var packetReceived message.GossipPacket
 	protobuf.Decode(buf, &packetReceived)
 
-	if packetReceived.Simple != nil {
-		//Add the peer if necessary
-		peer, err := peer.New(packetReceived.Simple.RelayPeerAddr)
-		if err != nil {
-			return
-		}
-		g.dbPeers.Insert(peer)
+	//Add the peer if necessary
+	peer, err := peer.New(addr.String())
+	if err != nil {
+		return
+	}
+	g.dbPeers.Insert(peer)
 
+	if packetReceived.Simple != nil {
 		utils.PrintSimpleMessage(packetReceived.Simple)
 		utils.PrintPeers(g.dbPeers.GetKeys())
 
@@ -41,13 +41,6 @@ func (g *Gossiper) servePeer(addr net.Addr, buf []byte) {
 		g.BroadcastMessage(&packetReceived, toAvoid)
 
 	} else if packetReceived.Rumor != nil {
-		//Add the peer if necessary
-		peer, err := peer.New(addr.String())
-		if err != nil {
-			return
-		}
-		g.dbPeers.Insert(peer)
-
 		peer = g.dbPeers.Get(addr.String())
 
 		// if the message is empty, this is a route rumor
@@ -90,13 +83,6 @@ func (g *Gossiper) servePeer(addr net.Addr, buf []byte) {
 		g.rumoring(randomPeer, &packetReceived, toAvoid)
 
 	} else if packetReceived.Status != nil {
-		//Add the peer if necessary
-		peer, err := peer.New(addr.String())
-		if err != nil {
-			return
-		}
-		g.dbPeers.Insert(peer)
-
 		utils.PrintStatusMessage(packetReceived.Status, addr.String())
 		utils.PrintPeers(g.dbPeers.GetKeys())
 
@@ -123,13 +109,6 @@ func (g *Gossiper) servePeer(addr net.Addr, buf []byte) {
 			g.dbCh.Delete(addr.String())
 		}
 	} else if packetReceived.Private != nil {
-		//Add the peer if necessary
-		peer, err := peer.New(addr.String())
-		if err != nil {
-			return
-		}
-		g.dbPeers.Insert(peer)
-
 		// If i'm the destination, I print the message and return
 		if packetReceived.Private.Destination == g.Name {
 			utils.PrintPrivateMessage(packetReceived.Private)
@@ -159,14 +138,6 @@ func (g *Gossiper) servePeer(addr net.Addr, buf []byte) {
 
 		g.SendToPeer(destinationPeer, &packetReceived)
 	} else if packetReceived.DataRequest != nil {
-		//fmt.Println("RECEIVED DATA REQUEST")
-		//Add the peer if necessary
-		peer, err := peer.New(addr.String())
-		if err != nil {
-			return
-		}
-		g.dbPeers.Insert(peer)
-
 		// If i'm the destination, prepare the DataReplay message and send it back
 		if packetReceived.DataRequest.Destination == g.Name {
 			var HashValue32 [32]byte
@@ -213,13 +184,6 @@ func (g *Gossiper) servePeer(addr net.Addr, buf []byte) {
 		g.SendToPeer(destinationPeer, &packetReceived)
 
 	} else if packetReceived.DataReply != nil {
-		//Add the peer if necessary
-		peer, err := peer.New(addr.String())
-		if err != nil {
-			return
-		}
-		g.dbPeers.Insert(peer)
-
 		// If I am the destination, forward the message to the thread is handling it
 		if packetReceived.DataReply.Destination == g.Name {
 			ch, ok := g.dbFileCh.Get(packetReceived.DataReply.Origin)
@@ -253,13 +217,6 @@ func (g *Gossiper) servePeer(addr net.Addr, buf []byte) {
 
 		g.SendToPeer(destinationPeer, &packetReceived)
 	} else if packetReceived.SearchRequest != nil {
-
-		//Add the peer if necessary
-		peer, err := peer.New(addr.String())
-		if err != nil {
-			return
-		}
-		g.dbPeers.Insert(peer)
 		fmt.Println("RECEIVED SEARCH REQUEST from " + peer.Address.String())
 
 		//check if already received
@@ -321,13 +278,6 @@ func (g *Gossiper) servePeer(addr net.Addr, buf []byte) {
 		}
 	} else if packetReceived.SearchReply != nil {
 		fmt.Println("RECEIVED SEARCH REPLY origin " + packetReceived.SearchReply.Origin + " from " + addr.String())
-		//Add the peer if necessary
-		peer, err := peer.New(addr.String())
-		if err != nil {
-			return
-		}
-		g.dbPeers.Insert(peer)
-
 		// If I am the destination, insert the results in the db if necessary
 		if packetReceived.SearchReply.Destination == g.Name {
 			g.dbFile.HandleSearchReply(packetReceived.SearchReply)
@@ -359,6 +309,120 @@ func (g *Gossiper) servePeer(addr net.Addr, buf []byte) {
 		g.miner.ChGossiperToMiner <- &packetReceived
 	} else if packetReceived.BlockPublish != nil {
 		g.miner.ChGossiperToMiner <- &packetReceived
+	} else if packetReceived.TxOnionPeer != nil {
+		g.onionMiner.ChGossiperToMiner <- &packetReceived
+	} else if packetReceived.BlockOnionPublish != nil {
+		g.onionMiner.ChGossiperToMiner <- &packetReceived
+	} else if packetReceived.BlockRequest != nil {
+		g.onionMiner.ChGossiperToMiner <- &packetReceived
+	} else if packetReceived.BlockReply != nil {
+		// If i'm the destination
+		if packetReceived.BlockReply.Destination == g.Name {
+			g.onionMiner.ChGossiperToMiner <- &packetReceived
+			return
+		}
+
+		// Forward the message to next hop
+		nextHop, ok := g.routingTable.GetRoute(packetReceived.BlockReply.Destination)
+		if !ok {
+			fmt.Println("Destination not present in the routing table")
+			return
+		}
+		destinationPeer := g.dbPeers.Get(nextHop)
+		if peer == nil {
+			fmt.Println("Destination not present in the routing table")
+			return
+		}
+
+		//reduce the hop limit
+		packetReceived.BlockReply.HopLimit = packetReceived.BlockReply.HopLimit - 1
+		// discard if reched limit
+		if packetReceived.BlockReply.HopLimit == 0 {
+			fmt.Println("Reached 0")
+			return
+		}
+		g.SendToPeer(destinationPeer, &packetReceived)
+	} else if packetReceived.OnionMessage != nil {
+		// If i'm the destination, I decrypt a layer
+		if packetReceived.OnionMessage.Destination == g.Name {
+			gossipMessage, err := g.onionAgent.DecryptLayer(&packetReceived)
+			if err != nil {
+				fmt.Println(err)
+				return
+			}
+			if packetReceived.OnionMessage.LastNode {
+				// This is the clear message
+				if gossipMessage.Private != nil {
+					utils.PrintPrivateMessage(gossipMessage.Private)
+					g.dbPrivateMessages.InsertMessage(gossipMessage.Private.Origin, gossipMessage.Private)
+					return
+				} else if gossipMessage.DataRequest != nil {
+					// We have to replay again with onion encryption
+					var HashValue32 [32]byte
+					copy(HashValue32[:], gossipMessage.DataRequest.HashValue)
+					data, ok := g.dbFile.GetHashValue(HashValue32)
+					if !ok {
+						return
+					}
+					dataReply := &message.DataReply{
+						Origin:      g.Name,
+						Destination: gossipMessage.DataRequest.Origin,
+						HopLimit:    10,
+						HashValue:   gossipMessage.DataRequest.HashValue,
+						Data:        data,
+					}
+					packetToSend := &message.GossipPacket{DataReply: dataReply}
+
+					// Onion encrypt
+					// Ask the miner for 3 nodes from the pk blockchain
+					onionNodes, err := g.onionMiner.GetRoute(gossipMessage.DataRequest.Origin)
+					if err != nil {
+						return
+					}
+					packetToSend, err = g.onionAgent.OnionEncrypt(packetToSend, onionNodes[0], onionNodes[1], onionNodes[2], onionNodes[3])
+					if err != nil {
+						return
+					}
+					//time.Sleep(500 * time.Millisecond)
+					// Reduce the hop limit before send
+					packetToSend.OnionMessage.HopLimit = packetToSend.OnionMessage.HopLimit - 1
+					g.SendToPeer(peer, packetToSend)
+					return
+				} else if gossipMessage.DataReply != nil {
+					ch, ok := g.dbFileCh.Get(gossipMessage.DataReply.Origin)
+					if !ok {
+						fmt.Println("Received a DataReply message, but no thread to handle it")
+						return
+					}
+					ch <- *gossipMessage
+					return
+				}
+			} else {
+				packetReceived = *gossipMessage
+			}
+		}
+
+		// Forward the message to next hop
+		nextHop, ok := g.routingTable.GetRoute(packetReceived.OnionMessage.Destination)
+
+		if !ok {
+			fmt.Println("Destination not present in the routing table")
+			return
+		}
+		destinationPeer := g.dbPeers.Get(nextHop)
+		if peer == nil {
+			fmt.Println("Destination not present in the routing table")
+			return
+		}
+
+		//reduce the hop limit
+		packetReceived.OnionMessage.HopLimit = packetReceived.OnionMessage.HopLimit - 1
+		// discard if reched limit
+		if packetReceived.OnionMessage.HopLimit == 0 {
+			fmt.Println("Reached 0")
+			return
+		}
+		g.SendToPeer(destinationPeer, &packetReceived)
 	}
 }
 
@@ -508,12 +572,43 @@ func (g *Gossiper) RouteRumor() {
 func (g *Gossiper) Mining() {
 	// Start the Miner
 	go g.miner.StartMining()
+	if g.tor {
+		go g.onionMiner.StartMining()
+	}
+
+	///////TEST
+	/*txPublish := &message.TxOnionPeer {
+		NodeName: g.Name,
+		HopLimit: 10,
+	}
+	packetToSend := &message.GossipPacket{TxOnionPeer: txPublish}
+	g.onionMiner.ChGossiperToMiner <- packetToSend
+	g.BroadcastMessage(packetToSend, nil)*/
+	//////
 
 	// Handle messages from the miner
 	for {
-		packetToSend := <-g.miner.ChMinerToGossiper
-		// Broadcast the message
-		g.BroadcastMessage(packetToSend, nil)
+		select {
+		case packetToSend := <-g.onionMiner.ChMinerToGossiper:
+			if packetToSend.BlockReply != nil {
+				nextHop, ok := g.routingTable.GetRoute(packetToSend.BlockReply.Destination)
+				if !ok {
+					fmt.Println("Destination not present in the routing table")
+					continue
+				}
+				destinationPeer := g.dbPeers.Get(nextHop)
+				if destinationPeer == nil {
+					fmt.Println("Destination not present in the routing table")
+					continue
+				}
+				g.SendToPeer(destinationPeer, packetToSend)
+			} else {
+				g.BroadcastMessage(packetToSend, nil)
+			}
+
+		case packetToSend := <-g.miner.ChMinerToGossiper:
+			g.BroadcastMessage(packetToSend, nil)
+		}
 	}
 }
 

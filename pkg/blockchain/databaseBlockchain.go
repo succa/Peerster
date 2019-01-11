@@ -85,17 +85,6 @@ func (b *DatabaseBlockchain) GetMetaFile(fileName string) ([32]byte, bool) {
 	return meta, ok
 }
 
-func (b *DatabaseBlockchain) CheckFileExistance(fileName string, metafileHash [32]byte) bool {
-	b.mux.Lock()
-	defer b.mux.Unlock()
-
-	meta, ok := b.FileNames[fileName]
-	if ok && meta == metafileHash {
-		return true
-	}
-	return false
-}
-
 func (b *DatabaseBlockchain) rollback(newLongestChain []*message.Block) int {
 	//find the common uncestor with the current lastblock
 	previousLongestChain := b.getChain(b.LastBlock)

@@ -93,6 +93,54 @@ func (g *Gossiper) SendPrivateMessage(msg string, destination string) error {
 	return nil
 }
 
+func (g *Gossiper) SendOnionPrivateMessage(msg string, destination string) error {
+	if !g.tor {
+		return errors.New("Onion encription not enabled")
+	}
+
+	// Private Message
+	privateMessage := &message.PrivateMessage{
+		Origin:      g.Name,
+		ID:          0,
+		Text:        msg,
+		Destination: destination,
+		HopLimit:    10,
+	}
+	gossipPacket := &message.GossipPacket{Private: privateMessage}
+
+	// Onion encrypt
+	// Ask the miner for 3 nodes from the pk blockchain
+	onionNodes, err := g.onionMiner.GetRoute(destination)
+	if err != nil {
+		return err
+	}
+	packetToSend, err := g.onionAgent.OnionEncrypt(gossipPacket, onionNodes[0], onionNodes[1], onionNodes[2], onionNodes[3])
+	if err != nil {
+		return err
+	}
+
+	// Take the next hop from routing table
+	nextHop, ok := g.routingTable.GetRoute(packetToSend.OnionMessage.Destination)
+	if !ok {
+		return errors.New("Destination not present in the routing table")
+	}
+	peer := g.dbPeers.Get(nextHop)
+	if peer == nil {
+		return errors.New("Destination not present in the routing table")
+	}
+
+	// Reduce the hop limit before sending
+	packetToSend.OnionMessage.HopLimit = packetToSend.OnionMessage.HopLimit - 1
+	err = g.SendToPeer(peer, packetToSend)
+	if err != nil {
+		fmt.Println("Error in sending")
+		return err
+	}
+	utils.PrintSendingPrivateMessage(privateMessage)
+	g.dbPrivateMessages.InsertMessage(destination, privateMessage)
+	return nil
+}
+
 func (g *Gossiper) AddNewPeer(peerAddress string) error {
 	peer, err := peer.New(peerAddress)
 	if err != nil {
@@ -207,15 +255,25 @@ func (g *Gossiper) RequestFile(dest string, file string, request [32]byte) error
 	}
 
 	// start a thread that handle the file request
-	go g.handleFileRequest(dest, filepath.Base(file), request)
-	//TODO return error from thread somehow
+	go g.handleFileRequest(dest, filepath.Base(file), request, false)
 	return nil
 }
 
-func (g *Gossiper) handleFileRequest(dest string, file string, request [32]byte) {
+func (g *Gossiper) RequestFileOnion(dest string, file string, request [32]byte) error {
+	//Create _Download folder if it not exists
+	if _, err := os.Stat(downloadFolder); os.IsNotExist(err) {
+		os.Mkdir(downloadFolder, os.ModePerm)
+	}
+
+	// start a thread that handle the file request
+	go g.handleFileRequest(dest, filepath.Base(file), request, true)
+	return nil
+}
+
+func (g *Gossiper) handleFileRequest(dest string, file string, request [32]byte, tor bool) {
 
 	//Fist step: download the metafile at dest
-	tempFileName, chunkHashes, err := g.requestMetafile(dest, file, request)
+	tempFileName, chunkHashes, err := g.requestMetafile(dest, file, request, tor)
 
 	if err != nil {
 		fmt.Println(err)
@@ -226,7 +284,7 @@ func (g *Gossiper) handleFileRequest(dest string, file string, request [32]byte)
 	for index, chunkHash := range chunkHashes {
 		//time.Sleep(500 * time.Millisecond)
 		// Download the Chunk
-		err := g.requestChunk(dest, file, tempFileName, request, chunkHash, index)
+		err := g.requestChunk(dest, file, tempFileName, request, chunkHash, index, tor)
 		if err != nil {
 			// TODO remove the tempFile and return
 			fmt.Println(err)
@@ -246,16 +304,10 @@ func (g *Gossiper) handleFileRequest(dest string, file string, request [32]byte)
 
 }
 
-func (g *Gossiper) requestMetafile(dest string, file string, request [32]byte) (string, [][]byte, error) {
-	//Check if the destination is reachable
-	nextHop, oki := g.routingTable.GetRoute(dest)
-	if !oki {
-		//TODO maybe we have to return the error somehow
-		return "", nil, errors.New("Destination not present in the routing table")
-	}
-	peerNextHop := g.dbPeers.Get(nextHop)
-	if peerNextHop == nil {
-		return "", nil, errors.New("Destination not present in the routing table")
+func (g *Gossiper) requestMetafile(dest string, file string, request [32]byte, tor bool) (string, [][]byte, error) {
+	//check tor is enabled
+	if tor && !g.tor {
+		return "", nil, errors.New("Tor is not enabled")
 	}
 
 	// create new channel
@@ -270,9 +322,6 @@ func (g *Gossiper) requestMetafile(dest string, file string, request [32]byte) (
 	}
 	defer g.dbFileCh.Delete(dest)
 
-	// Nice print
-	utils.PrintDownloadingMetafile(file, dest)
-
 	// Create a DataRequest
 	dataRequest := &message.DataRequest{
 		Origin:      g.Name,
@@ -282,9 +331,52 @@ func (g *Gossiper) requestMetafile(dest string, file string, request [32]byte) (
 	}
 	packetToSend := &message.GossipPacket{DataRequest: dataRequest}
 
-	// Reduce the hop limit before sending
-	packetToSend.DataRequest.HopLimit = packetToSend.DataRequest.HopLimit - 1
-	g.SendToPeer(peerNextHop, packetToSend)
+	var peerNextHop *peer.Peer
+	if tor {
+		// Onion encrypt
+		// Ask the miner for 3 nodes from the pk blockchain
+		onionNodes, err := g.onionMiner.GetRoute(dest)
+		if err != nil {
+			return "", nil, err
+		}
+		packetToSend, err = g.onionAgent.OnionEncrypt(packetToSend, onionNodes[0], onionNodes[1], onionNodes[2], onionNodes[3])
+		if err != nil {
+			return "", nil, err
+		}
+
+		//Check if the destination is reachable
+		nextHop, oki := g.routingTable.GetRoute(packetToSend.OnionMessage.Destination)
+		if !oki {
+			return "", nil, errors.New("Destination not present in the routing table")
+		}
+		peerNextHop = g.dbPeers.Get(nextHop)
+		if peerNextHop == nil {
+			return "", nil, errors.New("Destination not present in the routing table")
+		}
+
+		// Reduce the hop limit before sending
+		packetToSend.OnionMessage.HopLimit = packetToSend.OnionMessage.HopLimit - 1
+		//fmt.Println("Riccardo before sending onion message")
+		g.SendToPeer(peerNextHop, packetToSend)
+	} else {
+		//Check if the destination is reachable
+		nextHop, oki := g.routingTable.GetRoute(dest)
+		if !oki {
+			//TODO maybe we have to return the error somehow
+			return "", nil, errors.New("Destination not present in the routing table")
+		}
+		peerNextHop = g.dbPeers.Get(nextHop)
+		if peerNextHop == nil {
+			return "", nil, errors.New("Destination not present in the routing table")
+		}
+
+		// Reduce the hop limit before sending
+		packetToSend.DataRequest.HopLimit = packetToSend.DataRequest.HopLimit - 1
+		g.SendToPeer(peerNextHop, packetToSend)
+	}
+
+	// Nice print
+	utils.PrintDownloadingMetafile(file, dest)
 
 	var chunkHashes [][]byte
 	var ok bool
@@ -330,20 +422,11 @@ func (g *Gossiper) requestMetafile(dest string, file string, request [32]byte) (
 	return tempFileName, chunkHashes, nil
 }
 
-func (g *Gossiper) requestChunk(dest string, file string, tempFileName string, request [32]byte, chunkHash []byte, index int) error {
-	//Check if the destination is reachable
-	nextHop, oki := g.routingTable.GetRoute(dest)
-	if !oki {
-		//TODO maybe we have to return the error somehow
-		return errors.New("Destination not present in the routing table")
+func (g *Gossiper) requestChunk(dest string, file string, tempFileName string, request [32]byte, chunkHash []byte, index int, tor bool) error {
+	//check tor is enabled
+	if tor && !g.tor {
+		return errors.New("Tor is not enabled")
 	}
-	peerNextHop := g.dbPeers.Get(nextHop)
-	if peerNextHop == nil {
-		return errors.New("Destination not present in the routing table")
-	}
-
-	// Nice print
-	utils.PrintDownloadingChunk(file, index, dest)
 
 	// create new channel
 	channel := make(chan message.GossipPacket)
@@ -366,9 +449,52 @@ func (g *Gossiper) requestChunk(dest string, file string, tempFileName string, r
 	}
 	packetToSend := &message.GossipPacket{DataRequest: dataRequest}
 
-	// Reduce the hop limit before send
-	packetToSend.DataRequest.HopLimit = packetToSend.DataRequest.HopLimit - 1
-	g.SendToPeer(peerNextHop, packetToSend)
+	var peerNextHop *peer.Peer
+	if tor {
+		// Onion encrypt
+		// Ask the miner for 3 nodes from the pk blockchain
+		onionNodes, err := g.onionMiner.GetRoute(dest)
+		if err != nil {
+			return err
+		}
+		packetToSend, err = g.onionAgent.OnionEncrypt(packetToSend, onionNodes[0], onionNodes[1], onionNodes[2], onionNodes[3])
+		if err != nil {
+			return err
+		}
+
+		//Check if the destination is reachable
+		nextHop, oki := g.routingTable.GetRoute(packetToSend.OnionMessage.Destination)
+		if !oki {
+			//TODO maybe we have to return the error somehow
+			return errors.New("Destination not present in the routing table")
+		}
+		peerNextHop = g.dbPeers.Get(nextHop)
+		if peerNextHop == nil {
+			return errors.New("Destination not present in the routing table")
+		}
+
+		// Reduce the hop limit before sending
+		packetToSend.OnionMessage.HopLimit = packetToSend.OnionMessage.HopLimit - 1
+		g.SendToPeer(peerNextHop, packetToSend)
+	} else {
+		//Check if the destination is reachable
+		nextHop, oki := g.routingTable.GetRoute(dest)
+		if !oki {
+			//TODO maybe we have to return the error somehow
+			return errors.New("Destination not present in the routing table")
+		}
+		peerNextHop = g.dbPeers.Get(nextHop)
+		if peerNextHop == nil {
+			return errors.New("Destination not present in the routing table")
+		}
+
+		// Reduce the hop limit before sending
+		packetToSend.DataRequest.HopLimit = packetToSend.DataRequest.HopLimit - 1
+		g.SendToPeer(peerNextHop, packetToSend)
+	}
+
+	// Nice print
+	utils.PrintDownloadingChunk(file, index, dest)
 
 	ticker := time.NewTicker(5 * time.Second)
 	var flag bool
@@ -547,6 +673,7 @@ func (g *Gossiper) downloadMetafileSearched(keywords []string) {
 					requestInfo.ChunkMap[0],
 					requestInfo.FileName,
 					requestInfo.MetaHash,
+					false,
 				)
 			}
 		}
@@ -588,7 +715,7 @@ func (g *Gossiper) DownloadSearchedFile(destFileName string, metaHash [32]byte) 
 		dest := requestInfo.ChunkMap[i]
 		request := requestInfo.MetaHash
 		// Download the Chunk
-		err := g.requestChunk(dest, destFileName, tempFileName, request, chunkHashes[i], i)
+		err := g.requestChunk(dest, destFileName, tempFileName, request, chunkHashes[i], i, false)
 		if err != nil {
 			// TODO remove the tempFile and return
 			fmt.Println(err)
@@ -647,7 +774,7 @@ func (g *Gossiper) DownloadSearchedFileFromName(destFileName string) error {
 		dest := requestInfo.ChunkMap[i]
 		request := requestInfo.MetaHash
 		// Download the Chunk
-		err := g.requestChunk(dest, destFileName, tempFileName, request, chunkHashes[i], i)
+		err := g.requestChunk(dest, destFileName, tempFileName, request, chunkHashes[i], i, false)
 		if err != nil {
 			// TODO remove the tempFile and return
 			fmt.Println(err)

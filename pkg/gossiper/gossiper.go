@@ -6,6 +6,9 @@ import (
 
 	"github.com/succa/Peerster/pkg/blockchain"
 	database "github.com/succa/Peerster/pkg/database"
+	message "github.com/succa/Peerster/pkg/message"
+	"github.com/succa/Peerster/pkg/onion"
+	"github.com/succa/Peerster/pkg/onionblockchain"
 	peer "github.com/succa/Peerster/pkg/peer"
 	utils "github.com/succa/Peerster/pkg/utils"
 )
@@ -29,14 +32,17 @@ type Gossiper struct {
 	dbFile            *database.FileDatabase
 	dbFileCh          *database.FileDatabaseChannels
 	miner             *blockchain.Miner
+	onionMiner        *onionblockchain.Miner
+	onionAgent        *onion.OnionAgent
 	searchHelper      *utils.SearchHelper
 	searchDuplicates  *utils.TTLSearchRequest
 	rtimer            int
 	mode              bool
+	tor              bool
 }
 
 // Start the connections to client and peers
-func NewGossiper(UIport, address, name string, rtimer int, mode bool) *Gossiper {
+func NewGossiper(UIport, address, name string, rtimer int, mode bool, tor bool) *Gossiper {
 	// Peers
 	udpAddr, err := net.ResolveUDPAddr("udp4", address)
 	if err != nil {
@@ -60,10 +66,12 @@ func NewGossiper(UIport, address, name string, rtimer int, mode bool) *Gossiper 
 		dbFile:            database.NewFileDatabase(),
 		dbFileCh:          database.NewFileDatabaseChannels(),
 		miner:             blockchain.NewMiner(),
+		onionMiner:        onionblockchain.NewMiner(name),
 		searchHelper:      utils.NewSearchHelper(),
 		searchDuplicates:  utils.NewTTLSearchRequest(int64(0.5e9)),
 		rtimer:            rtimer,
 		mode:              mode,
+		tor:              tor,
 	}
 }
 
@@ -86,8 +94,22 @@ func (g *Gossiper) Start() {
 		go g.RouteRumor()
 	}
 
-	// Blockchain Mining
+	// Blockchains Mining
 	go g.Mining()
+
+	if g.tor {
+		// Initialize onion agent
+		g.onionAgent = onion.NewOnionAgent()
+
+		// Send the Public Key (in a TxOnionPeer) to the Onion Miner, so that it is stored in the blockchain
+		g.onionMiner.ChGossiperToMiner <- &message.GossipPacket{
+			TxOnionPeer: &message.TxOnionPeer{
+				NodeName:  g.Name,
+				PublicKey: g.onionAgent.GetPublicKeyString(),
+				HopLimit:  10,
+			},
+		}
+	}
 
 	// Anri-entropy -- BLOCKING
 	g.antiEntropy()

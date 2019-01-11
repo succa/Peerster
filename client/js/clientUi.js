@@ -23,7 +23,7 @@ $(document).ready(function(){
 		const msg = $("#message").val()
 		$("#sendMessage").prop("disabled", true)
         $("#message").prop("disabled", true)
-        var obj = { Dest: "", Msg: msg, File: "", Request: "", Keywords: "", Budget: 0 }
+        var obj = { Dest: "", Msg: msg, File: "", Request: "", Keywords: "", Budget: 0, Tor: "" }
         var dataToSend = JSON.stringify(obj)
         $.ajax({
             type: 'POST',
@@ -69,7 +69,32 @@ $(document).ready(function(){
         const file = $("#fileName").val()
         const request = $("#metaHash").val()
         if (dest !== "" && file !== "" && request !== "") {
-            var obj = { Dest: dest, Msg: "", File: file, Request: request, Keywords: "", Budget: 0 }
+            var obj = { Dest: dest, Msg: "", File: file, Request: request, Keywords: "", Budget: 0, Tor: "" }
+            var dataToSend = JSON.stringify(obj)
+            $.ajax({
+                type: 'POST',
+                url: "/message",
+                data: dataToSend,
+                success: function() {
+                    alert("File downloaded")
+                },
+                error: function() {
+                    alert("Unable to download file")
+                },
+                contentType: "application/json"
+            })
+        } else {
+            alert("Please insert all the information")
+        }
+    })
+
+    // Download Onion button
+    $("#downloadOnionButton").click(function(){
+        const dest = $("#downloadNode").val()
+        const file = $("#fileName").val()
+        const request = $("#metaHash").val()
+        if (dest !== "" && file !== "" && request !== "") {
+            var obj = { Dest: dest, Msg: "", File: file, Request: request, Keywords: "", Budget: 0, Tor: "Enabled" }
             var dataToSend = JSON.stringify(obj)
             $.ajax({
                 type: 'POST',
@@ -93,7 +118,7 @@ $(document).ready(function(){
         const selectFile = window.document.getElementById("selectFile")
         var file = selectFile[selectFile.selectedIndex].value
         //alert(file)
-        var obj = { Dest: "", Msg: "", File: file, Request: "", Keywords: "", Budget: 0 }
+        var obj = { Dest: "", Msg: "", File: file, Request: "", Keywords: "", Budget: 0, Tor: "" }
         var dataToSend = JSON.stringify(obj)
         $.ajax({
             type: 'POST',
@@ -116,7 +141,7 @@ $(document).ready(function(){
         if (isNaN(budget)) {
             budget = 0
         }
-        var obj = { Dest: "", Msg: "", File: "", Request: "", Keywords: searchFile, Budget: budget }
+        var obj = { Dest: "", Msg: "", File: "", Request: "", Keywords: searchFile, Budget: budget, Tor: "" }
         var dataToSend = JSON.stringify(obj)
         $.ajax({
             type: 'POST',
@@ -263,7 +288,9 @@ function openPrivateDialogBox(dest) {
         <div class="title" id="destination">` + dest + `</div> 
         <div class="clear" id="inputBox"> 
             <div class="border right"> 
-                Message: <input type="text" placeholder="Write a private message" id="privateMessage" /> <button id="sendPrivateMessage">Send</button><br /> 
+                Message: <input type="text" placeholder="Write a private message" id="privateMessage" /> <br /> 
+                <button id="sendPrivateMessage">Send</button>
+                <button id="sendPrivateOnionMessage">Send with Tor</button>
             </div> 
         </div> 
         <div id="privateChatBox"> 
@@ -279,6 +306,7 @@ function openPrivateDialogBox(dest) {
     //alert(dest)
 
     function getPrivateMessages() {
+        //alert("getting private messages")
         $.get("/message?dest=" + dest, function(messages){
             const privateChatBox = window.document.getElementById("privateChatContent")
     
@@ -308,13 +336,14 @@ function openPrivateDialogBox(dest) {
         const msg = $("#privateMessage").val()
         $("#sendPrivateMessage").prop("disabled", true)
         $("#privateMessage").prop("disabled", true)
-        var obj = { Dest: dest, Msg: msg, File: "", Request: "", Keywords: "", Budget: 0 }
+        var obj = { Dest: dest, Msg: msg, File: "", Request: "", Keywords: "", Budget: 0, Tor: "" }
         var dataToSend = JSON.stringify(obj)
         $.ajax({
             type: 'POST',
             url: "/message",
             data: dataToSend,
             success: function() {
+                //alert("success")
                 getPrivateMessages()
                 $("#sendPrivateMessage").prop("disabled", false)
                 $("#privateMessage").prop("disabled", false)
@@ -323,6 +352,33 @@ function openPrivateDialogBox(dest) {
             error: function() {
                 alert("Unable to send message")
                 $("#sendPrivateMessage").prop("disabled", false)
+                $("#privateMessage").prop("disabled", false)
+            },
+            contentType: "application/json"
+        })
+    })
+
+    // Send Onion Message button
+    $("#sendPrivateOnionMessage").click(function() {
+        const msg = $("#privateMessage").val()
+        $("#sendPrivateOnionMessage").prop("disabled", true)
+        $("#privateMessage").prop("disabled", true)
+        var obj = { Dest: dest, Msg: msg, File: "", Request: "", Keywords: "", Budget: 0, Tor: "Enabled" }
+        var dataToSend = JSON.stringify(obj)
+        $.ajax({
+            type: 'POST',
+            url: "/message",
+            data: dataToSend,
+            success: function() {
+                //alert("success")
+                getPrivateMessages()
+                $("#sendPrivateOnionMessage").prop("disabled", false)
+                $("#privateMessage").prop("disabled", false)
+                $("#privateMessage").val("")
+            },
+            error: function() {
+                alert("Unable to send message")
+                $("#sendPrivateOnionMessage").prop("disabled", false)
                 $("#privateMessage").prop("disabled", false)
             },
             contentType: "application/json"
