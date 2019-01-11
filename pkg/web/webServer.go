@@ -4,15 +4,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/succa/Peerster/pkg/gossiper"
+	"github.com/succa/Peerster/pkg/utils"
 	"io/ioutil"
 	"net/http"
 	"os"
 	"path"
 	"path/filepath"
-	"strings"
-
-	"github.com/succa/Peerster/pkg/gossiper"
-	"github.com/succa/Peerster/pkg/utils"
 )
 
 const fileFolder string = "/_SharedFiles"
@@ -93,25 +91,10 @@ func (w *WebServer) MessageHandler(wr http.ResponseWriter, r *http.Request) {
 			wr.Write(data)
 			return
 		case dest == "" && file != "" && keywords == "":
-			// List of searched files
-			wr.WriteHeader(http.StatusOK)
-			err := w.gossiper.DownloadSearchedFileFromName(file)
-			//fmt.Println(err)
-			var data []byte
-			if err != nil {
-				data, _ = json.Marshal(err.Error())
-			} else {
-				data, _ = json.Marshal("File Downloaded")
-			}
-			wr.Write(data)
+			fmt.Println("search disabled, sorry")
 			return
 		case dest == "" && file == "" && keywords != "":
-			// List of searched files
-			wr.WriteHeader(http.StatusOK)
-			k := strings.Split(keywords, ",")
-			files := w.gossiper.GetCompletedSearches(k)
-			data, _ := json.Marshal(files)
-			wr.Write(data)
+			fmt.Println("search disabled, sorry")
 			return
 		}
 
@@ -234,19 +217,7 @@ func (w *WebServer) MessageHandler(wr http.ResponseWriter, r *http.Request) {
 			budget == 0 &&
 			tor == ""):
 			//Request for a file that was previously searched
-			var byteReq32 [32]byte
-			byteReq, err := hex.DecodeString(request)
-			if err != nil {
-				fmt.Println("The hex request is incorrect")
-				wr.WriteHeader(http.StatusInternalServerError)
-				return
-			}
-			copy(byteReq32[:], byteReq) //TODO test this part
-			err = w.gossiper.DownloadSearchedFile(file, byteReq32)
-			if err != nil {
-				wr.WriteHeader(http.StatusInternalServerError)
-				return
-			}
+			fmt.Println("search disabled, sorry")
 			return
 		case (message == "" &&
 			dest == "" &&
@@ -254,18 +225,7 @@ func (w *WebServer) MessageHandler(wr http.ResponseWriter, r *http.Request) {
 			request == "" &&
 			keywords != "" &&
 			tor == ""):
-			keyw := strings.Split(keywords, ",")
-			fmt.Println(keyw)
-			if len(keyw) == 0 {
-				wr.WriteHeader(http.StatusInternalServerError)
-				return
-			}
-			err = w.gossiper.SearchFiles(keyw, budget)
-			if err != nil {
-				wr.WriteHeader(http.StatusInternalServerError)
-				return
-			}
-			//wr.WriteHeader(http.StatusOK)
+			fmt.Println("search disabled, sorry")
 			return
 		case (message != "" &&
 			dest != "" &&
