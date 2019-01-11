@@ -13,6 +13,7 @@ import (
 
 	"github.com/dedis/protobuf"
 	"github.com/succa/Peerster/pkg/message"
+	"github.com/succa/Peerster/pkg/utils"
 )
 
 type OnionAgent struct {
@@ -260,6 +261,8 @@ func (o *OnionAgent) OnionEncrypt(msg *message.GossipPacket, destination, node3,
 	finalGossipPacket := &message.GossipPacket{OnionMessage: finalPacket}
 
 	//fmt.Println("After final")
+
+	utils.PrintOnionEncrypted()
 
 	return finalGossipPacket, nil
 }

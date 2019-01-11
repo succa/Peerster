@@ -148,6 +148,15 @@ func PrintForkShorterOnion(block *message.BlockOnion) {
 	fmt.Printf("ONION FORK-SHORTER %x\n", block.Hash())
 }
 
-func PrintOnionMessage(onion *message.OnionMessage) {
-	fmt.Print("ONION MESSAGE Destination %s Chiper %x\n", onion.Destination, onion.Cipher)
+func PrintOnionLayerDecrypted(last bool) {
+	if last {
+		fmt.Print("LAST NODE\n")
+
+	} else {
+		fmt.Print("INTERMEDIATE NODE\n")
+	}
+}
+
+func PrintOnionEncrypted() {
+	fmt.Println("ENCRYPTION OF A MESSAGE")
 }

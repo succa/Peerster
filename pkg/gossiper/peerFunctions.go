@@ -350,6 +350,7 @@ func (g *Gossiper) servePeer(addr net.Addr, buf []byte) {
 				fmt.Println(err)
 				return
 			}
+			utils.PrintOnionLayerDecrypted(packetReceived.OnionMessage.LastNode)
 			if packetReceived.OnionMessage.LastNode {
 				// This is the clear message
 				if gossipMessage.Private != nil {
