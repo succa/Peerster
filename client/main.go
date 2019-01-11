@@ -30,6 +30,7 @@ func main() {
 	var request = flag.String("request", "", "metafile to request")
 	var keywords = flag.String("keywords", "", "*keywords*")
 	var budget = flag.Uint64("budget", 0, "budget to use")
+	var tor = flag.String("tor", "", "pass non-empty value for Onion encryption of filesharing and private messages")
 	//d3ae55aaba41249e5fcfe761fee90237121fad0337b5304e89fed911143e0fdd
 
 	flag.Parse()
@@ -60,7 +61,7 @@ func main() {
 		Request:  *request,
 		Keywords: *keywords,
 		Budget:   float64(*budget),
-		Tor:      "",
+		Tor:      *tor,
 	}
 
 	jsonStr, err := json.Marshal(message)

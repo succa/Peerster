@@ -85,7 +85,7 @@ func (m *Miner) StartMining() {
 				//Broadcast to new peers
 				m.ChMinerToGossiper <- packetReceived
 			} else {
-				fmt.Println("BLOCK NOT ACCEPTED")
+				//fmt.Println("BLOCK NOT ACCEPTED")
 			}
 		} else if packetReceived.BlockRequest != nil {
 			block, haveAlready := m.DbBlockchain.GetBlock(packetReceived.BlockRequest.BlockHash)

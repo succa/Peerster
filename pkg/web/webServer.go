@@ -235,9 +235,11 @@ func (w *WebServer) MessageHandler(wr http.ResponseWriter, r *http.Request) {
 			budget == 0 &&
 			tor != ""):
 			//Private message
+			fmt.Println("onion private message")
 			err = w.gossiper.SendOnionPrivateMessage(message, dest)
 			//fmt.Println(err.Error())
 			if err != nil {
+				fmt.Println(err)
 				wr.WriteHeader(http.StatusInternalServerError)
 				return
 			}

@@ -103,18 +103,26 @@ func PrintChain(blocks []*message.Block) {
 }
 
 func PrintForkLonger(rewind int) {
+	return
+
 	fmt.Printf("FORK-LONGER rewind %d blocks\n", rewind)
 }
 
 func PrintForkShorter(block *message.Block) {
+	return
+
 	fmt.Printf("FORK-SHORTER %x\n", block.Hash())
 }
 
 func PrintFoundOnionBlock(block *message.BlockOnion) {
+	return
+
 	fmt.Printf("ONION FOUND-BLOCK %x\n", block.Hash())
 }
 
 func PrintChainOnion(blocks []*message.BlockOnion) {
+	return
+
 	fmt.Printf("ONION CHAIN ")
 	for i := len(blocks) - 1; i >= 0; i-- {
 		fmt.Printf("%x:", blocks[i].Hash())
@@ -141,10 +149,14 @@ func PrintChainOnion(blocks []*message.BlockOnion) {
 }
 
 func PrintForkLongerOnion(rewind int) {
+	return
+
 	fmt.Printf("ONION FORK-LONGER rewind %d blocks\n", rewind)
 }
 
 func PrintForkShorterOnion(block *message.BlockOnion) {
+	return
+
 	fmt.Printf("ONION FORK-SHORTER %x\n", block.Hash())
 }
 

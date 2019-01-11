@@ -341,6 +341,7 @@ func (g *Gossiper) handleFileRequest(dest string, file string, request [32]byte,
 
 	chunksPath := filepath.Join(utils.DownloadsChunksPath, file)
 	if _, err := os.Stat(chunksPath); !os.IsNotExist(err) {
+		fmt.Println("file seems already donwloaded")
 		return // it seems like this file was already downloaded
 	}
 
@@ -372,6 +373,7 @@ func (g *Gossiper) handleFileRequest(dest string, file string, request [32]byte,
 
 		//time.Sleep(500 * time.Millisecond)
 		// Download the Chunk
+		fmt.Println("waiting for one more chunk..")
 		mreply, err := g.requestChunk(dest, tempFileName, curHash[:], tor)
 		if err != nil {
 			// TODO remove the tempFile and return
@@ -454,6 +456,7 @@ func (g *Gossiper) requestRootHash(dest string, file string, request [32]byte, t
 	}
 	defer g.dbFileCh.Delete(dest)
 
+	fmt.Println("requesting root hash..")
 	// Create a DataRequest
 	dataRequest := &message.DataRequest{
 		Origin:      g.Name,
@@ -488,7 +491,8 @@ func (g *Gossiper) requestRootHash(dest string, file string, request [32]byte, t
 
 		// Reduce the hop limit before sending
 		packetToSend.OnionMessage.HopLimit = packetToSend.OnionMessage.HopLimit - 1
-		//fmt.Println("Riccardo before sending onion message")
+
+		fmt.Println("sending onion root request")
 		g.SendToPeer(peerNextHop, packetToSend)
 	} else {
 		//Check if the destination is reachable
@@ -504,6 +508,7 @@ func (g *Gossiper) requestRootHash(dest string, file string, request [32]byte, t
 
 		// Reduce the hop limit before sending
 		packetToSend.DataRequest.HopLimit = packetToSend.DataRequest.HopLimit - 1
+		fmt.Println("sending usual root request")
 		g.SendToPeer(peerNextHop, packetToSend)
 	}
 
