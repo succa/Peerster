@@ -7,7 +7,7 @@ import (
 	"github.com/succa/Peerster/pkg/message"
 	"github.com/succa/Peerster/pkg/utils"
 	"io/ioutil"
-	"math"
+	//"math"
 	"os"
 	"path"
 	"path/filepath"
@@ -51,7 +51,7 @@ type FileDatabase struct {
 func NewFileDatabase() *FileDatabase {
 	return &FileDatabase{
 		RootHashDB: make(map[[32]byte]*FileInfo),
-		//RequestDb: make(map[[32]byte]*RequestInfo),
+		RequestDb: make(map[[32]byte]*RequestInfo),
 	}
 }
 
@@ -217,17 +217,17 @@ func (f *FileDatabase) CheckCompletedSearch(keywords []string, limit int) bool {
 	f.mux.Lock()
 	defer f.mux.Unlock()
 
-	i := 0
+	//i := 0
 
 	for _, keyword := range keywords {
 		for _, mapValue := range f.RequestDb {
 			if match, _ := regexp.MatchString(".*"+keyword+".*", mapValue.FileName); match {
-				if mapValue.ChunkNum == len(mapValue.ChunkMap) {
-					i = i + 1
-					if i == 2 {
-						return true
-					}
-				}
+				//if mapValue.ChunkNum == len(mapValue.ChunkMap) {
+				//	i = i + 1
+				//	if i == 2 {
+				return true
+					//}
+				//}
 			}
 		}
 	}
@@ -341,17 +341,17 @@ func (f *FileDatabase) GetFileRegex(file string) []*message.SearchResult {
 		if match {
 			fmt.Println("MATCH with " + filepath.Base(value.FileName))
 			var chunkMap []uint64
-			leavesChunkSize := int(math.Ceil(float64(value.FileSize) / utils.FileChunkSize))
-			for i := 0; i < leavesChunkSize; i++ {
-				chunkMap = append(chunkMap, uint64(i + 1)) // not good, but works with invariant of only full files
-			}
+			//leavesChunkSize := int(math.Ceil(float64(value.FileSize) / utils.FileChunkSize))
+			//for i := 0; i < leavesChunkSize; i++ {
+			chunkMap = append(chunkMap, uint64(0)) // not good, but works with invariant of only full files
+			//}
 			sort.Slice(chunkMap, func(i, j int) bool { return chunkMap[i] < chunkMap[j] })
 
 			// create a search result
 			searchResult := &message.SearchResult{
 				FileName:     value.FileName,
 				MetafileHash: value.RootNode.HashValue[:],
-				ChunkMap:     chunkMap,
+				ChunkMap:     chunkMap, // chunk map is left empty, because
 				ChunkCount:   uint64(len(chunkMap)),
 			}
 			ret = append(ret, searchResult)
@@ -379,7 +379,7 @@ func (f *FileDatabase) GetCompletedSearches(keywords []string) []*RequestInfo {
 	for _, keyword := range keywords {
 		for _, v := range f.RequestDb {
 			if match, _ := regexp.MatchString(".*"+keyword+".*", v.FileName); match {
-				if v.ChunkNum == len(v.ChunkMap) && !v.Checked {
+				if /*v.ChunkNum == len(v.ChunkMap) && */!v.Checked {
 					v.Checked = true
 					ret = append(ret, v)
 				}
@@ -396,7 +396,7 @@ func (f *FileDatabase) GetCompletedSearchesClient(keywords []string) []*RequestI
 	for _, keyword := range keywords {
 		for _, v := range f.RequestDb {
 			if match, _ := regexp.MatchString(".*"+keyword+".*", v.FileName); match {
-				if v.ChunkNum == len(v.ChunkMap) && !v.ReturnedToClient {
+				if /*v.ChunkNum == len(v.ChunkMap) &&*/ !v.ReturnedToClient {
 					v.ReturnedToClient = true
 					ret = append(ret, v)
 				}

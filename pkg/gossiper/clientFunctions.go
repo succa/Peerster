@@ -378,8 +378,9 @@ func (g *Gossiper) handleFileRequest(dest string, file string, request [32]byte,
 			fmt.Println(err)
 			return
 		}
-		fmt.Println("Downloaded chunk " + strconv.Itoa(len(nodeset)) + ", in queue left: " + strconv.Itoa(len(chunksToDownload)))
-
+		if len(nodeset) % 1000 == 0 {
+			fmt.Println("Downloaded chunk " + strconv.Itoa(len(nodeset)) + ", in queue left: " + strconv.Itoa(len(chunksToDownload)))
+		}
 		curNode := &database.MerkleNode{Height:mreply.Height, Children:make([]*database.MerkleNode, 0), HashValue:curHash}
 		nodeset[curHash] = curNode
 		awaitedChildToParent[curHash].Children = append(awaitedChildToParent[curHash].Children, curNode)
