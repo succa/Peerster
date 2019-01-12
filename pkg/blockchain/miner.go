@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"fmt"
+	"time"
 
 	"github.com/succa/Peerster/pkg/message"
 	"github.com/succa/Peerster/pkg/utils"
@@ -105,6 +106,7 @@ func (m *Miner) MiningProcess(chMiningProcess chan *message.Block) {
 			// wait until there is at least one tx to mine
 			txs := m.DbBlockchain.GetAvailableTxs()
 			if len(txs) == 0 {
+				time.Sleep(time.Second)
 				continue
 			}
 			// Set the current mined txs and start mining

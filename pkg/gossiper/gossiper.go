@@ -3,6 +3,7 @@ package gossiper
 import (
 	"fmt"
 	"net"
+	"os"
 
 	"github.com/succa/Peerster/pkg/blockchain"
 	database "github.com/succa/Peerster/pkg/database"
@@ -86,6 +87,14 @@ func (g *Gossiper) AddKnownPeers(peers []string) {
 }
 
 func (g *Gossiper) Start() {
+	// clean tmp files:
+	if _, err := os.Stat(utils.SharedChunksPath); !os.IsNotExist(err) {
+		os.RemoveAll(utils.SharedChunksPath)
+	}
+	if _, err := os.Stat(utils.DownloadsChunksPath); !os.IsNotExist(err) {
+		os.RemoveAll(utils.DownloadsChunksPath)
+	}
+
 	// Handle peer connection
 	go g.handleConn()
 
