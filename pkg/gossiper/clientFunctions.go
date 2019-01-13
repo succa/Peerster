@@ -169,7 +169,7 @@ func (g *Gossiper) GetPrivateMessages(dest string) []*message.PrivateMessage {
 }
 
 func (g *Gossiper) ShareFile(filePath string) error {
-    ///////////////////////
+	///////////////////////
 	// creating tmp dirs //
 	///////////////////////
 
@@ -180,7 +180,7 @@ func (g *Gossiper) ShareFile(filePath string) error {
 		os.Mkdir(utils.SharedChunksPath, utils.FileCommonMode)
 	}
 
-	sharedFile := &database.FileInfo{FileName:path.Base(filePath)}
+	sharedFile := &database.FileInfo{FileName: path.Base(filePath)}
 
 	chunksPath := filepath.Join(utils.SharedChunksPath, sharedFile.FileName)
 	if _, err := os.Stat(chunksPath); !os.IsNotExist(err) {
@@ -356,7 +356,7 @@ func (g *Gossiper) handleFileRequest(dest string, file string, request [32]byte,
 
 	tempFileName := getTemporaryFilename(file)
 
-	rootNode := &database.MerkleNode{Height:height, HashValue:request, Children:nil}
+	rootNode := &database.MerkleNode{Height: height, HashValue: request, Children: nil}
 
 	nodeset := make(map[[32]byte]*database.MerkleNode)
 	awaitedChildToParent := make(map[[32]byte]*database.MerkleNode)
@@ -380,10 +380,10 @@ func (g *Gossiper) handleFileRequest(dest string, file string, request [32]byte,
 			fmt.Println(err)
 			return
 		}
-		if len(nodeset) % 1000 == 0 {
+		if len(nodeset)%1000 == 0 {
 			fmt.Println("Downloaded chunk " + strconv.Itoa(len(nodeset)) + ", in queue left: " + strconv.Itoa(len(chunksToDownload)))
 		}
-		curNode := &database.MerkleNode{Height:mreply.Height, Children:make([]*database.MerkleNode, 0), HashValue:curHash}
+		curNode := &database.MerkleNode{Height: mreply.Height, Children: make([]*database.MerkleNode, 0), HashValue: curHash}
 		nodeset[curHash] = curNode
 		awaitedChildToParent[curHash].Children = append(awaitedChildToParent[curHash].Children, curNode)
 		ioutil.WriteFile(filepath.Join(chunksPath, database.GetMerkleChunkFileName(curHash)), mreply.Data, utils.FileCommonMode)
@@ -433,7 +433,7 @@ func (g *Gossiper) handleFileRequest(dest string, file string, request [32]byte,
 		return
 	}
 	fileSize := fs.Size()
-	downloadedFile := &database.FileInfo{ChunkDb:nodeset, FileName:file, RootNode:rootNode, FileSize:fileSize}
+	downloadedFile := &database.FileInfo{ChunkDb: nodeset, FileName: file, RootNode: rootNode, FileSize: fileSize}
 	g.dbFile.InsertFileinfo(downloadedFile)
 	utils.PrintReconstructed(file)
 }
@@ -661,7 +661,7 @@ func checkMetafile(data []byte) ([][32]byte, bool) {
 	}
 	chunks := make([][32]byte, len(data)/32)
 	for i := 0; i < len(data)/32; i++ {
-		copy(chunks[i][:], data[i*32 : i*32+32])
+		copy(chunks[i][:], data[i*32:i*32+32])
 	}
 	return chunks, true
 }

@@ -162,13 +162,9 @@ func PrintForkShorterOnion(block *message.BlockOnion) {
 
 func PrintOnionLayerDecrypted(last bool) {
 	if last {
-		fmt.Print("LAST NODE\n")
+		fmt.Print("LAST NODE ONION PATH\n")
 
 	} else {
-		fmt.Print("INTERMEDIATE NODE\n")
+		fmt.Print("INTERMEDIATE NODE ONION PATH\n")
 	}
-}
-
-func PrintOnionEncrypted() {
-	fmt.Println("ENCRYPTION OF A MESSAGE")
 }

@@ -75,9 +75,9 @@ $(document).ready(function(){
                 type: 'POST',
                 url: "/message",
                 data: dataToSend,
-                success: function() {
-                    alert("File downloaded")
-                },
+                //success: function() {
+                //    alert("File downloaded")
+                //},
                 error: function() {
                     alert("Unable to download file")
                 },
