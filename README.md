@@ -5,6 +5,7 @@ Authors: Artem Shevchenko, Riccardo Succa, Aleksandr Tukallo
 
 The Peerster works as always, but there is the new flag **-tor** to set if we want to make a node able to use anonymous routing.
 Es. ./Peerster -UIPort=10000 -gossipAddr=127.0.0.1:5000 -peers=127.0.0.1:5001 -name=A -rtimer=5 **-tor**
+Be aware that the system need at least 5 nodes with tor enabled: source, 3 nodes for the path and destination.
 
 In the client, two new buttons are added:
   - *Send with Tor*, when we want to send a private message to a node
