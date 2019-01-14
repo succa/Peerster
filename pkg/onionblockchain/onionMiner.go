@@ -176,7 +176,7 @@ func (m *Miner) BroadcastNewBlock(block *message.BlockOnion) {
 
 func checkSuccesfullBlock(block *message.BlockOnion) bool {
 	hash := block.Hash()
-	if bytes.HasPrefix(hash[:], make([]byte, 2)) {
+	if bytes.HasPrefix(hash[:], make([]byte, 3)) {
 		return true
 	}
 	return false
